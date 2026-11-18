@@ -47,9 +47,10 @@ function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boole
   return (
     <div className={`chatPanel ${isTouch ? "open" : ""}`}>
       {isTouch && (
-        <button className="chatClose" onClick={onClose} title="收起">
-          ✕
-        </button>
+        <div className="chatHead" onClick={onClose} title="收起聊天">
+          <span>💬 聊天 / AI 施工队</span>
+          <span className="chatClose">收起 ▾</span>
+        </div>
       )}
       <div className="chatList" ref={listRef}>
         {chat.map((m: ChatMessage) => (
@@ -114,7 +115,7 @@ function TopBar() {
 
 export default function App() {
   const joined = useWorld((s) => s.joined);
-  const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || (typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches));
+  const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GameHandle | null>(null);
@@ -141,8 +142,11 @@ export default function App() {
         <div className="ui">
           <TopBar />
           {(!isTouch || chatOpen) && <ChatPanel isTouch={isTouch} onClose={() => setChatOpen(false)} />}
-          {isTouch && (
-            <button className="chatFab" onClick={() => setChatOpen((o) => !o)} title="聊天 / AI 施工队">
+          {isTouch && chatOpen && (
+            <div className="chatBackdrop" onClick={() => setChatOpen(false)} />
+          )}
+          {isTouch && !chatOpen && (
+            <button className="chatFab" onClick={() => setChatOpen(true)} title="聊天 / AI 施工队">
               💬
             </button>
           )}

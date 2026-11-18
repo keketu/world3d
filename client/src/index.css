@@ -456,16 +456,49 @@ body,
   .chatPanel {
     display: none;
   }
-  .chatPanel.open {
-    display: flex;
-    position: absolute;
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    top: auto;
-    width: auto;
-    height: 42vh;
-    z-index: 30;
+}
+/* 展开状态不依赖媒体查询（触摸设备才可能进入 open） */
+.chatPanel.open {
+  display: flex;
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  width: auto;
+  height: 46vh;
+  z-index: 30;
+}
+
+.chatBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 30, 50, 0.25);
+  z-index: 25;
+  pointer-events: auto;
+}
+
+.chatHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: #55647e;
+  padding: 10px 12px 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chatClose {
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #eef2f8;
+}
+
+@media (pointer: coarse) {
+  .chatPanel:not(.open) {
+    display: none;
   }
   .hotbar {
     bottom: auto;
