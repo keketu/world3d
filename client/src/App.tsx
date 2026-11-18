@@ -24,7 +24,7 @@ function Toaster() {
   );
 }
 
-function ChatPanel() {
+function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boolean }) {
   const chat = useWorld((s) => s.chat);
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -45,7 +45,12 @@ function ChatPanel() {
   };
 
   return (
-    <div className="chatPanel">
+    <div className={`chatPanel ${isTouch ? "open" : ""}`}>
+      {isTouch && (
+        <button className="chatClose" onClick={onClose} title="收起">
+          ✕
+        </button>
+      )}
       <div className="chatList" ref={listRef}>
         {chat.map((m: ChatMessage) => (
           <div key={m.id} className={`chatRow kind-${m.kind}`}>
@@ -110,6 +115,7 @@ function TopBar() {
 export default function App() {
   const joined = useWorld((s) => s.joined);
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || (typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches));
+  const [chatOpen, setChatOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GameHandle | null>(null);
 
@@ -134,7 +140,12 @@ export default function App() {
       {joined && (
         <div className="ui">
           <TopBar />
-          <ChatPanel />
+          {(!isTouch || chatOpen) && <ChatPanel isTouch={isTouch} onClose={() => setChatOpen(false)} />}
+          {isTouch && (
+            <button className="chatFab" onClick={() => setChatOpen((o) => !o)} title="聊天 / AI 施工队">
+              💬
+            </button>
+          )}
           <Hotbar />
           <Toaster />
           <div className="hint">
@@ -171,8 +182,8 @@ function JoinDialog({ onJoin }: { onJoin: (name: string) => void }) {
           进入世界 →
         </button>
         <div className="joinTips">
-          WASD 走动 · 拖拽转视角 · 滚轮缩放<br />
-          下方选择道具，左键点击地面放置 · 右键拆除自己的造物
+          电脑：WASD 走动 · 选道具左键点地面放置<br />
+          手机：左侧摇杆走动 · 点地面放置 · 💬 展开聊天
         </div>
       </div>
     </div>

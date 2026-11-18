@@ -130,7 +130,7 @@ export function startGame(container: HTMLElement): GameHandle {
   let lastPinch = 0;
   const mouseNDC = new THREE.Vector2(9, 9);
   const dom = renderer.domElement;
-  const isTouchPointer = (e: PointerEvent) => e.pointerType !== "mouse";
+  const isTouchPointer = (e: { pointerType: string }) => e.pointerType !== "mouse";
 
   // 虚拟摇杆 DOM
   const joyBase = document.createElement("div");
@@ -141,7 +141,7 @@ export function startGame(container: HTMLElement): GameHandle {
   joyBase.appendChild(joyKnob);
   container.appendChild(joyBase);
 
-  function joyUpdate(e: PointerEvent) {
+  function joyUpdate(e: { clientX: number; clientY: number }) {
     let dx = e.clientX - joy.bx;
     let dy = e.clientY - joy.by;
     const d = Math.hypot(dx, dy);
@@ -155,7 +155,25 @@ export function startGame(container: HTMLElement): GameHandle {
     joyKnob.style.top = `${joy.by + dy}px`;
   }
 
-  const onPointerDown = (e: PointerEvent) => {
+  interface InEv {
+    pointerId: number;
+    pointerType: string;
+    clientX: number;
+    clientY: number;
+    button: number;
+    target: EventTarget | null;
+  }
+  const norm = (e: { pointerId?: number; identifier?: number; pointerType?: string; clientX: number; clientY: number; button?: number; target?: EventTarget | null }): InEv => ({
+    pointerId: typeof e.pointerId === "number" ? e.pointerId : e.identifier ?? 0,
+    pointerType: e.pointerType ?? "touch",
+    clientX: e.clientX,
+    clientY: e.clientY,
+    button: e.button ?? 0,
+    target: e.target ?? null,
+  });
+
+  const onPointerDown = (raw: InEv) => {
+    const e = raw;
     // 只处理画布上的按下（UI 面板/聊天框的事件不拦截游戏交互）
     if (e.target !== renderer.domElement) return;
     // 虚拟摇杆：触屏且点在屏幕左侧 42% 区域
@@ -187,7 +205,8 @@ export function startGame(container: HTMLElement): GameHandle {
     void camPointers;
   };
 
-  const onPointerMove = (e: PointerEvent) => {
+  const onPointerMove = (raw: InEv) => {
+    const e = raw;
     // 鼠标始终更新悬停坐标
     if (e.pointerType === "mouse") {
       mouseNDC.x = (e.clientX / container.clientWidth) * 2 - 1;
@@ -222,12 +241,11 @@ export function startGame(container: HTMLElement): GameHandle {
       p.ly = e.clientY;
       camYaw -= dx * 0.0052;
       camPitch = Math.max(0.15, Math.min(1.45, camPitch + dy * 0.0042));
-    } else if (e.pointerType === "mouse" && e.buttons > 0) {
-      // 兼容：鼠标按下拖拽（有些环境 pointer capture 后仍走这里）
     }
   };
 
-  const onPointerUp = (e: PointerEvent) => {
+  const onPointerUp = (raw: InEv) => {
+    const e = raw;
     if (e.pointerId === joyId) {
       joyId = null;
       joy.active = false;
@@ -263,10 +281,22 @@ export function startGame(container: HTMLElement): GameHandle {
     camDist = Math.max(5, Math.min(30, camDist + Math.sign(e.deltaY) * 1.5));
   };
   const onContext = (e: Event) => e.preventDefault();
-  dom.addEventListener("pointerdown", onPointerDown);
-  window.addEventListener("pointermove", onPointerMove);
-  window.addEventListener("pointerup", onPointerUp);
-  window.addEventListener("pointercancel", onPointerUp);
+  if (typeof window.PointerEvent === "function") {
+    dom.addEventListener("pointerdown", (e) => onPointerDown(norm(e)));
+    window.addEventListener("pointermove", (e) => onPointerMove(norm(e)));
+    window.addEventListener("pointerup", (e) => onPointerUp(norm(e)));
+    window.addEventListener("pointercancel", (e) => onPointerUp(norm(e)));
+  } else {
+    // 旧浏览器：Touch Events + Mouse 回退
+    const touchList = (e: TouchEvent) => Array.from(e.changedTouches);
+    dom.addEventListener("touchstart", (e) => { for (const t of touchList(e)) onPointerDown(norm(t)); }, { passive: true });
+    window.addEventListener("touchmove", (e) => { for (const t of touchList(e)) onPointerMove(norm(t)); }, { passive: true });
+    window.addEventListener("touchend", (e) => { for (const t of touchList(e)) onPointerUp(norm(t)); });
+    window.addEventListener("touchcancel", (e) => { for (const t of touchList(e)) onPointerUp(norm(t)); });
+    dom.addEventListener("mousedown", (e) => onPointerDown(norm(e)));
+    window.addEventListener("mousemove", (e) => onPointerMove(norm(e)));
+    window.addEventListener("mouseup", (e) => onPointerUp(norm(e)));
+  }
   dom.addEventListener("wheel", onWheel, { passive: true });
   dom.addEventListener("contextmenu", onContext);
 
@@ -578,10 +608,10 @@ export function startGame(container: HTMLElement): GameHandle {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
-      dom.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
+      dom.removeEventListener("pointerdown", onPointerDown as never);
+      window.removeEventListener("pointermove", onPointerMove as never);
+      window.removeEventListener("pointerup", onPointerUp as never);
+      window.removeEventListener("pointercancel", onPointerUp as never);
       window.removeEventListener("resize", onResize);
       renderer.dispose();
       container.innerHTML = "";
