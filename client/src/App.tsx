@@ -109,6 +109,7 @@ function TopBar() {
 
 export default function App() {
   const joined = useWorld((s) => s.joined);
+  const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || (typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches));
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GameHandle | null>(null);
 
@@ -137,7 +138,9 @@ export default function App() {
           <Hotbar />
           <Toaster />
           <div className="hint">
-            WASD 走动 · 拖拽转视角 · 选下方道具左键放置 · 右键拆除自己的造物 · 对聊天框说「种一排樱花树」
+            {isTouch
+              ? "左下摇杆走动 · 点地面放置 · 长按拆除 · 右侧滑动转视角 · 双指缩放"
+              : "WASD 走动 · 拖拽转视角 · 选下方道具左键放置 · 右键拆除自己的造物 · 对聊天框说「种一排樱花树」"}
           </div>
         </div>
       )}

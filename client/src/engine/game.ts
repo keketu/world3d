@@ -105,7 +105,7 @@ export function startGame(container: HTMLElement): GameHandle {
   let camPitch = 0.72;
   let camDist = 13;
 
-  // ---------- 输入 ----------
+  // ---------- 输入（鼠标/触摸统一 Pointer Events） ----------
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -119,48 +119,146 @@ export function startGame(container: HTMLElement): GameHandle {
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
 
-  let dragging = false;
-  let dragMoved = 0;
-  let lastMX = 0;
-  let lastMY = 0;
+  interface PtrTrack {
+    sx: number; sy: number; lx: number; ly: number;
+    moved: number; t0: number; kind: "cam" | "joy"; button: number;
+  }
+  const pointers = new Map<number, PtrTrack>();
+  let joyId: number | null = null;
+  const joy = { active: false, bx: 0, by: 0, dx: 0, dy: 0 };
+  const JOY_R = 52;
+  let lastPinch = 0;
   const mouseNDC = new THREE.Vector2(9, 9);
   const dom = renderer.domElement;
+  const isTouchPointer = (e: PointerEvent) => e.pointerType !== "mouse";
 
-  const onMouseDown = (e: MouseEvent) => {
-    dragging = true;
-    dragMoved = 0;
-    lastMX = e.clientX;
-    lastMY = e.clientY;
+  // 虚拟摇杆 DOM
+  const joyBase = document.createElement("div");
+  joyBase.className = "joyBase";
+  joyBase.style.display = "none";
+  const joyKnob = document.createElement("div");
+  joyKnob.className = "joyKnob";
+  joyBase.appendChild(joyKnob);
+  container.appendChild(joyBase);
+
+  function joyUpdate(e: PointerEvent) {
+    let dx = e.clientX - joy.bx;
+    let dy = e.clientY - joy.by;
+    const d = Math.hypot(dx, dy);
+    if (d > JOY_R) {
+      dx = (dx / d) * JOY_R;
+      dy = (dy / d) * JOY_R;
+    }
+    joy.dx = dx / JOY_R;
+    joy.dy = dy / JOY_R;
+    joyKnob.style.left = `${joy.bx + dx}px`;
+    joyKnob.style.top = `${joy.by + dy}px`;
+  }
+
+  const onPointerDown = (e: PointerEvent) => {
+    // 虚拟摇杆：触屏且点在屏幕左侧 42% 区域
+    if (isTouchPointer(e) && e.clientX < container.clientWidth * 0.42 && joyId === null) {
+      joyId = e.pointerId;
+      joy.active = true;
+      joy.bx = e.clientX;
+      joy.by = e.clientY;
+      joy.dx = 0;
+      joy.dy = 0;
+      joyBase.style.display = "";
+      joyBase.style.left = `${e.clientX}px`;
+      joyBase.style.top = `${e.clientY}px`;
+      joyKnob.style.left = `${e.clientX}px`;
+      joyKnob.style.top = `${e.clientY}px`;
+      return;
+    }
+    const camPointers = [...pointers.values()].filter((p) => p.kind === "cam").length;
+    lastPinch = 0;
+    pointers.set(e.pointerId, {
+      sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
+      moved: 0, t0: Date.now(), kind: "cam", button: e.button,
+    });
+    void camPointers;
   };
-  const onMouseMove = (e: MouseEvent) => {
-    if (dragging) {
-      const dx = e.clientX - lastMX;
-      const dy = e.clientY - lastMY;
-      dragMoved += Math.abs(dx) + Math.abs(dy);
+
+  const onPointerMove = (e: PointerEvent) => {
+    // 鼠标始终更新悬停坐标
+    if (e.pointerType === "mouse") {
+      mouseNDC.x = (e.clientX / container.clientWidth) * 2 - 1;
+      mouseNDC.y = -(e.clientY / container.clientHeight) * 2 + 1;
+      hoverScreen.x = e.clientX;
+      hoverScreen.y = e.clientY;
+    }
+    const p = pointers.get(e.pointerId);
+    if (p) {
+      if (p.kind === "joy") {
+        joyUpdate(e);
+        return;
+      }
+      const camPointers = [...pointers.entries()].filter(([, q]) => q.kind === "cam");
+      if (camPointers.length >= 2) {
+        // 双指捏合缩放
+        p.lx = e.clientX;
+        p.ly = e.clientY;
+        const pts = camPointers.map(([, q]) => ({ x: q.lx, y: q.ly }));
+        if (pts.length === 2) {
+          const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+          if (lastPinch > 0) camDist = Math.max(5, Math.min(30, camDist - (d - lastPinch) * 0.06));
+          lastPinch = d;
+        }
+        p.moved += 10;
+        return;
+      }
+      const dx = e.clientX - p.lx;
+      const dy = e.clientY - p.ly;
+      p.moved += Math.abs(dx) + Math.abs(dy);
+      p.lx = e.clientX;
+      p.ly = e.clientY;
       camYaw -= dx * 0.0052;
       camPitch = Math.max(0.15, Math.min(1.45, camPitch + dy * 0.0042));
-      lastMX = e.clientX;
-      lastMY = e.clientY;
+    } else if (e.pointerType === "mouse" && e.buttons > 0) {
+      // 兼容：鼠标按下拖拽（有些环境 pointer capture 后仍走这里）
     }
-    mouseNDC.x = (e.clientX / container.clientWidth) * 2 - 1;
-    mouseNDC.y = -(e.clientY / container.clientHeight) * 2 + 1;
-    hoverScreen.x = e.clientX;
-    hoverScreen.y = e.clientY;
   };
-  const onMouseUp = (e: MouseEvent) => {
-    const wasClick = dragging && dragMoved < 6;
-    dragging = false;
-    if (!wasClick || !useWorld.getState().joined) return;
-    if (e.button === 0) clickAction();
-    else if (e.button === 2) removeAction();
+
+  const onPointerUp = (e: PointerEvent) => {
+    if (e.pointerId === joyId) {
+      joyId = null;
+      joy.active = false;
+      joy.dx = 0;
+      joy.dy = 0;
+      joyBase.style.display = "none";
+      return;
+    }
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    pointers.delete(e.pointerId);
+    lastPinch = 0;
+    const dur = Date.now() - p.t0;
+    const wasTap = p.moved < 8 && dur < 400;
+    const wasLongPress = p.moved < 8 && dur >= 500;
+    if (!useWorld.getState().joined) return;
+    if (wasTap) {
+      mouseNDC.x = (p.lx / container.clientWidth) * 2 - 1;
+      mouseNDC.y = -(p.ly / container.clientHeight) * 2 + 1;
+      hoverTarget = raycastWorld();
+      if (p.button === 2) removeAction();
+      else clickAction();
+    } else if (wasLongPress) {
+      mouseNDC.x = (p.lx / container.clientWidth) * 2 - 1;
+      mouseNDC.y = -(p.ly / container.clientHeight) * 2 + 1;
+      hoverTarget = raycastWorld();
+      removeAction();
+    }
   };
+
   const onWheel = (e: WheelEvent) => {
     camDist = Math.max(5, Math.min(30, camDist + Math.sign(e.deltaY) * 1.5));
   };
   const onContext = (e: Event) => e.preventDefault();
-  dom.addEventListener("mousedown", onMouseDown);
-  window.addEventListener("mousemove", onMouseMove);
-  window.addEventListener("mouseup", onMouseUp);
+  dom.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
   dom.addEventListener("wheel", onWheel, { passive: true });
   dom.addEventListener("contextmenu", onContext);
 
@@ -302,11 +400,16 @@ export function startGame(container: HTMLElement): GameHandle {
       if (keys.has("KeyS") || keys.has("ArrowDown")) mz += 1;
       if (keys.has("KeyA") || keys.has("ArrowLeft")) mx -= 1;
       if (keys.has("KeyD") || keys.has("ArrowRight")) mx += 1;
-      const moving = mx !== 0 || mz !== 0;
+      if (joy.active) {
+        // 虚拟摇杆：屏幕上方=向前走
+        mx += joy.dx;
+        mz += joy.dy;
+      }
+      const mag = Math.hypot(mx, mz);
+      const moving = mag > 0.18;
       if (moving) {
-        const len = Math.hypot(mx, mz);
-        mx /= len;
-        mz /= len;
+        mx /= Math.max(1, mag);
+        mz /= Math.max(1, mag);
         const sin = Math.sin(camYaw);
         const cos = Math.cos(camYaw);
         const wx = mx * cos - mz * sin;
@@ -467,8 +570,10 @@ export function startGame(container: HTMLElement): GameHandle {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      dom.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
       window.removeEventListener("resize", onResize);
       renderer.dispose();
       container.innerHTML = "";
