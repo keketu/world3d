@@ -171,6 +171,11 @@ export function startGame(container: HTMLElement): GameHandle {
       joyBase.style.top = `${e.clientY}px`;
       joyKnob.style.left = `${e.clientX}px`;
       joyKnob.style.top = `${e.clientY}px`;
+      // 关键：摇杆指针也要进入追踪表，否则 pointermove 找不到它
+      pointers.set(e.pointerId, {
+        sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
+        moved: 0, t0: Date.now(), kind: "joy", button: 0,
+      });
       return;
     }
     const camPointers = [...pointers.values()].filter((p) => p.kind === "cam").length;
@@ -229,6 +234,7 @@ export function startGame(container: HTMLElement): GameHandle {
       joy.dx = 0;
       joy.dy = 0;
       joyBase.style.display = "none";
+      pointers.delete(e.pointerId);
       return;
     }
     const p = pointers.get(e.pointerId);
@@ -565,7 +571,7 @@ export function startGame(container: HTMLElement): GameHandle {
   window.addEventListener("resize", onResize);
 
   // 调试钩子（无头验证用）
-  (window as unknown as Record<string, unknown>).__world3d = { clientWorld, scene, propMeshes };
+  (window as unknown as Record<string, unknown>).__world3d = { clientWorld, scene, propMeshes, joy, pointers, joyId: () => joyId };
 
   return {
     dispose() {
