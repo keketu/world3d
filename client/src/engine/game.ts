@@ -156,6 +156,8 @@ export function startGame(container: HTMLElement): GameHandle {
   }
 
   const onPointerDown = (e: PointerEvent) => {
+    // 只处理画布上的按下（UI 面板/聊天框的事件不拦截游戏交互）
+    if (e.target !== renderer.domElement) return;
     // 虚拟摇杆：触屏且点在屏幕左侧 42% 区域
     if (isTouchPointer(e) && e.clientX < container.clientWidth * 0.42 && joyId === null) {
       joyId = e.pointerId;
