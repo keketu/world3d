@@ -1,0 +1,409 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+}
+
+.app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #cfe8f5;
+}
+
+.canvasHost {
+  position: absolute;
+  inset: 0;
+}
+
+.canvasHost canvas {
+  display: block;
+}
+
+/* ---------- 加入对话框 ---------- */
+.joinOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 40, 60, 0.5);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.joinCard {
+  background: white;
+  border-radius: 20px;
+  padding: 30px 36px;
+  width: 360px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(20, 50, 90, 0.3);
+}
+
+.joinTitle {
+  font-size: 22px;
+  font-weight: 800;
+  color: #2c3852;
+  margin-bottom: 6px;
+}
+
+.joinSub {
+  font-size: 12px;
+  color: #8a95a9;
+  margin-bottom: 20px;
+}
+
+.joinInput {
+  width: 100%;
+  border: 1.5px solid #dfe6ef;
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: 14px;
+  text-align: center;
+  outline: none;
+  margin-bottom: 12px;
+  font-family: inherit;
+}
+
+.joinInput:focus {
+  border-color: #7ea6e0;
+}
+
+.joinBtn {
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #4f9e7c, #2f8562);
+  color: white;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.joinTips {
+  margin-top: 16px;
+  font-size: 11px;
+  color: #9aa5b8;
+  line-height: 1.8;
+}
+
+/* ---------- UI 覆盖层 ---------- */
+.ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.ui > * {
+  pointer-events: auto;
+}
+
+.topBar {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.brand {
+  font-size: 16px;
+  font-weight: 800;
+  color: #2c3852;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  padding: 7px 14px;
+  border-radius: 12px;
+}
+
+.brand .sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: #8a95a9;
+}
+
+.connPill,
+.playersPill {
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+}
+
+.connPill.on {
+  color: #2f9e6e;
+}
+
+.connPill.off {
+  color: #b3b9c7;
+}
+
+.toggleBtn {
+  border: 1px solid #dfe6ef;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  padding: 7px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #55647e;
+  font-family: inherit;
+}
+
+.toggleBtn.on {
+  background: #fff0f6;
+  border-color: #f0b8cc;
+  color: #d8457c;
+  font-weight: 600;
+}
+
+.qualitySel {
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: #6c7a92;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.qBtn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #6c7a92;
+  font-family: inherit;
+}
+
+.qBtn.on {
+  background: #2c3852;
+  color: white;
+  font-weight: 600;
+}
+
+/* ---------- 聊天 ---------- */
+.chatPanel {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: 360px;
+  pointer-events: auto;
+}
+
+.chatList {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 4px 2px;
+}
+
+.chatRow {
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(6px);
+  border-radius: 9px;
+  padding: 5px 10px;
+  line-height: 1.5;
+  width: fit-content;
+  max-width: 100%;
+  word-break: break-all;
+}
+
+.chatRow.kind-ai {
+  background: rgba(238, 234, 252, 0.85);
+}
+
+.chatRow.kind-system {
+  background: rgba(255, 255, 255, 0.5);
+  color: #8a95a9;
+}
+
+.chatFrom {
+  font-weight: 700;
+  color: #3a6bb5;
+}
+
+.chatInputRow {
+  display: flex;
+  gap: 6px;
+}
+
+.chatInput {
+  flex: 1;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 13px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  font-family: inherit;
+  box-shadow: 0 4px 16px rgba(40, 60, 100, 0.1);
+}
+
+.chatInput:focus {
+  border-color: #7ea6e0;
+}
+
+.chatSend {
+  border: none;
+  background: #4f9e7c;
+  color: white;
+  border-radius: 12px;
+  width: 42px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* ---------- Hotbar ---------- */
+.hotbar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 6px;
+  border-radius: 14px;
+}
+
+.slot {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slot.on {
+  border-color: #2c3852;
+  background: rgba(255, 255, 255, 0.9);
+  transform: translateY(-3px);
+}
+
+.slotCube {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.18), inset 3px 3px 0 rgba(255, 255, 255, 0.3);
+}
+
+.slotKey {
+  position: absolute;
+  bottom: 1px;
+  right: 4px;
+  font-size: 9px;
+  color: #6c7a92;
+}
+
+.hint {
+  position: absolute;
+  bottom: 18px;
+  right: 16px;
+  font-size: 11px;
+  color: #5c6b84;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(6px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* ---------- 3D 标签 ---------- */
+.labelLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.gameLabel {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+}
+
+.nameTag {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(30, 42, 62, 0.55);
+  padding: 2px 9px;
+  border-radius: 999px;
+}
+
+.nameTag.self {
+  background: rgba(43, 91, 168, 0.65);
+}
+
+.objTag .objLabel {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4a3d20;
+  background: rgba(255, 248, 220, 0.92);
+  border: 1px solid #e8d99a;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+.hoverTooltip {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  background: rgba(30, 42, 62, 0.88);
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  backdrop-filter: blur(6px);
+  max-width: 260px;
+}
+
+.hoverTooltip .t {
+  display: block;
+  font-size: 10px;
+  color: #b9c4d6;
+  margin-top: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d5dde8;
+  border-radius: 999px;
+}

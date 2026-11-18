@@ -1,0 +1,485 @@
+// 游戏引擎：低模世界渲染循环、本地玩家、道具交互、标签系统、远端玩家
+import * as THREE from "three";
+import { HOTBAR_PROPS, PlayerInfo, WorldObject, WATER_LEVEL } from "@world3d/shared";
+import { clientWorld } from "./world";
+import { buildTerrain, buildWater } from "./terrain";
+import { buildProp } from "./props";
+import { createAvatar, animateAvatar, Avatar } from "../scene/avatar";
+import { useWorld } from "../state/store";
+import { qualityFor, applyQuality, detectTier } from "./quality";
+import { sendMove } from "../net/socket";
+
+export interface GameHandle {
+  dispose(): void;
+  setSpawn(p: { x: number; y: number; z: number }): void;
+}
+
+let started = false;
+
+export function startGame(container: HTMLElement): GameHandle {
+  if (started) throw new Error("game already started");
+  started = true;
+
+  const tier = detectTier();
+  useWorld.getState().setTier(tier);
+  const q = qualityFor(tier);
+
+  // ---------- 三件套 ----------
+  const scene = new THREE.Scene();
+  const bgColor = new THREE.Color("#d3ecf7");
+  scene.background = bgColor;
+  const fog = new THREE.Fog("#d3ecf7", q.fogFar * 0.5, q.fogFar);
+  scene.fog = fog;
+
+  const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 500);
+  const renderer = new THREE.WebGLRenderer({ antialias: tier !== "low" });
+  applyQuality(tier, renderer, fog);
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+
+  scene.add(new THREE.HemisphereLight(0xeaf6ff, 0x9ec27a, 0.95));
+  const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
+  sun.position.set(60, 90, 30);
+  scene.add(sun);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+
+  // ---------- 地形与水 ----------
+  let terrainMesh: THREE.Mesh | null = null;
+  let waterMesh: THREE.Mesh | null = null;
+
+  function rebuildTerrain() {
+    if (terrainMesh) {
+      scene.remove(terrainMesh);
+      terrainMesh.geometry.dispose();
+    }
+    const size = clientWorld.meta?.size ?? 256;
+    terrainMesh = buildTerrain(size);
+    scene.add(terrainMesh);
+    if (!waterMesh) {
+      waterMesh = buildWater(size, WATER_LEVEL);
+      scene.add(waterMesh);
+    }
+  }
+  clientWorld.onModsChanged = rebuildTerrain;
+  // hello 到达后：建地形 + 生成已有造物（无动画）
+  clientWorld.onHello = () => {
+    rebuildTerrain();
+    for (const o of clientWorld.objects.values()) spawnProp(o, false);
+  };
+
+  // ---------- 道具管理 ----------
+  const propMeshes = new Map<string, { mesh: THREE.Object3D; labelY: number; creator: string; variant: string; kind: string }>();
+  const popAnims = new Map<string, number>();
+  const propGroup = new THREE.Group();
+  scene.add(propGroup);
+
+  function spawnProp(o: WorldObject, animate: boolean) {
+    const { mesh, labelY } = buildProp(o);
+    const y = clientWorld.heightAt(o.x, o.z);
+    mesh.position.set(o.x, y, o.z);
+    mesh.rotation.y = o.rotY;
+    mesh.scale.setScalar(animate ? 0.01 : o.scale || 1);
+    propGroup.add(mesh);
+    propMeshes.set(o.id, { mesh, labelY, creator: o.creatorName, variant: o.variant, kind: o.kind });
+    if (animate) popAnims.set(o.id, 0);
+  }
+
+  clientWorld.onObjectAdded = (o, animate) => spawnProp(o, animate);
+  clientWorld.onObjectRemoved = (id) => {
+    const pm = propMeshes.get(id);
+    if (pm) {
+      propGroup.remove(pm.mesh);
+      propMeshes.delete(id);
+    }
+  };
+
+  // ---------- 本地玩家 ----------
+  let self: { x: number; y: number; z: number; rotY: number; anim: "idle" | "walk" } = {
+    x: 128.5, y: 14, z: 128.5, rotY: 0, anim: "idle",
+  };
+  const selfAvatar = createAvatar("self", "#5b8def");
+  scene.add(selfAvatar.group);
+
+  // ---------- 相机 ----------
+  let camYaw = Math.PI * 0.3;
+  let camPitch = 0.72;
+  let camDist = 13;
+
+  // ---------- 输入 ----------
+  const keys = new Set<string>();
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    keys.add(e.code);
+    if (e.code.startsWith("Digit")) {
+      const n = parseInt(e.code.slice(5)) - 1;
+      if (n >= 0 && n < HOTBAR_PROPS.length) useWorld.getState().setHotbar(n);
+    }
+  };
+  const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+
+  let dragging = false;
+  let dragMoved = 0;
+  let lastMX = 0;
+  let lastMY = 0;
+  const mouseNDC = new THREE.Vector2(9, 9);
+  const dom = renderer.domElement;
+
+  const onMouseDown = (e: MouseEvent) => {
+    dragging = true;
+    dragMoved = 0;
+    lastMX = e.clientX;
+    lastMY = e.clientY;
+  };
+  const onMouseMove = (e: MouseEvent) => {
+    if (dragging) {
+      const dx = e.clientX - lastMX;
+      const dy = e.clientY - lastMY;
+      dragMoved += Math.abs(dx) + Math.abs(dy);
+      camYaw -= dx * 0.0052;
+      camPitch = Math.max(0.15, Math.min(1.45, camPitch + dy * 0.0042));
+      lastMX = e.clientX;
+      lastMY = e.clientY;
+    }
+    mouseNDC.x = (e.clientX / container.clientWidth) * 2 - 1;
+    mouseNDC.y = -(e.clientY / container.clientHeight) * 2 + 1;
+    hoverScreen.x = e.clientX;
+    hoverScreen.y = e.clientY;
+  };
+  const onMouseUp = (e: MouseEvent) => {
+    const wasClick = dragging && dragMoved < 6;
+    dragging = false;
+    if (!wasClick || !useWorld.getState().joined) return;
+    if (e.button === 0) clickAction();
+    else if (e.button === 2) removeAction();
+  };
+  const onWheel = (e: WheelEvent) => {
+    camDist = Math.max(5, Math.min(30, camDist + Math.sign(e.deltaY) * 1.5));
+  };
+  const onContext = (e: Event) => e.preventDefault();
+  dom.addEventListener("mousedown", onMouseDown);
+  window.addEventListener("mousemove", onMouseMove);
+  window.addEventListener("mouseup", onMouseUp);
+  dom.addEventListener("wheel", onWheel, { passive: true });
+  dom.addEventListener("contextmenu", onContext);
+
+  // ---------- 射线：地形 + 道具 ----------
+  const raycaster = new THREE.Raycaster();
+
+  interface HitResult {
+    ground: boolean;
+    point: THREE.Vector3;
+    objectId?: string;
+  }
+
+  function raycastWorld(): HitResult | null {
+    raycaster.setFromCamera(mouseNDC, camera);
+    raycaster.far = 32;
+    const propMeshList: THREE.Object3D[] = [];
+    for (const [, pm] of propMeshes) if (pm.mesh.visible) propMeshList.push(pm.mesh);
+    const propHits = raycaster.intersectObjects(propMeshList, false);
+    const groundHits = terrainMesh ? raycaster.intersectObject(terrainMesh, false) : [];
+    const groundHit = groundHits[0];
+    const propHit = propHits[0];
+    if (propHit && (!groundHit || propHit.distance < groundHit.distance)) {
+      return { ground: false, point: propHit.point, objectId: propHit.object.userData.objectId as string };
+    }
+    if (groundHit) {
+      return { ground: true, point: groundHit.point };
+    }
+    return null;
+  }
+
+  let hoverTarget: HitResult | null = null;
+
+  function clickAction() {
+    if (!hoverTarget) return;
+    const sel = HOTBAR_PROPS[useWorld.getState().hotbarIndex];
+    if (!sel) return;
+    const x = Math.round(hoverTarget.point.x * 10) / 10;
+    const z = Math.round(hoverTarget.point.z * 10) / 10;
+    clientWorld.placeProp(sel.kind, sel.variant, x, z, camYaw + Math.PI, (ok, reason) => {
+      if (!ok && reason) useWorld.getState().pushToast(reason);
+    });
+  }
+
+  function removeAction() {
+    if (!hoverTarget?.objectId) return;
+    const id = hoverTarget.objectId;
+    const o = clientWorld.objects.get(id);
+    const selfId = useWorld.getState().selfId;
+    if (o && o.creatorId !== selfId) {
+      useWorld.getState().pushToast("只能拆除自己创建的造物哦");
+      return;
+    }
+    clientWorld.removeProp(id);
+  }
+
+  // ---------- 高亮环 ----------
+  const highlightRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.55, 0.7, 28),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
+  );
+  highlightRing.rotation.x = -Math.PI / 2;
+  highlightRing.visible = false;
+  scene.add(highlightRing);
+
+  // ---------- 标签系统 ----------
+  const labelLayer = document.createElement("div");
+  labelLayer.className = "labelLayer";
+  container.appendChild(labelLayer);
+  const labels = new Map<string, { el: HTMLDivElement; wx: number; wy: number; wz: number; maxDist: number }>();
+
+  function setLabel(id: string, html: string, wx: number, wy: number, wz: number, cls = "", maxDist = 42) {
+    let l = labels.get(id);
+    if (!l) {
+      const el = document.createElement("div");
+      labelLayer.appendChild(el);
+      l = { el, wx, wy, wz, maxDist };
+      labels.set(id, l);
+    }
+    l.wx = wx;
+    l.wy = wy;
+    l.wz = wz;
+    l.maxDist = maxDist;
+    if (l.el.innerHTML !== html) l.el.innerHTML = html;
+    l.el.className = `gameLabel ${cls}`;
+  }
+
+  function removeLabel(id: string) {
+    const l = labels.get(id);
+    if (l) {
+      l.el.remove();
+      labels.delete(id);
+    }
+  }
+
+  const hoverTooltip = document.createElement("div");
+  hoverTooltip.className = "hoverTooltip";
+  hoverTooltip.style.display = "none";
+  container.appendChild(hoverTooltip);
+  const hoverScreen = { x: -1, y: -1 };
+
+  // ---------- 远端玩家 ----------
+  clientWorld.remoteFactory = (p: PlayerInfo) => {
+    const av = createAvatar(p.name, p.color);
+    av.group.position.set(p.x, p.y, p.z);
+    scene.add(av.group);
+    clientWorld.remotes.set(p.id, {
+      group: av,
+      target: { x: p.x, y: p.y, z: p.z, rotY: p.rotY },
+      info: p,
+    });
+    setLabel(`tag-${p.id}`, p.name, p.x, p.y + 1.4, p.z, "nameTag");
+  };
+  clientWorld.remoteRemover = (id: string) => {
+    const r = clientWorld.remotes.get(id);
+    if (r) {
+      scene.remove((r.group as Avatar).group);
+      removeLabel(`tag-${id}`);
+    }
+  };
+
+  // ---------- 主循环 ----------
+  const clock = new THREE.Clock();
+  let moveTimer = 0;
+  let raf = 0;
+  const camTarget = new THREE.Vector3(128.5, 14, 128.5);
+  const camCur = new THREE.Vector3(140, 26, 142);
+
+  function tick() {
+    raf = requestAnimationFrame(tick);
+    const dt = Math.min(clock.getDelta(), 0.06);
+    const time = clock.elapsedTime;
+    const st = useWorld.getState();
+
+    // 1. 本地移动
+    if (st.joined) {
+      let mx = 0;
+      let mz = 0;
+      if (keys.has("KeyW") || keys.has("ArrowUp")) mz -= 1;
+      if (keys.has("KeyS") || keys.has("ArrowDown")) mz += 1;
+      if (keys.has("KeyA") || keys.has("ArrowLeft")) mx -= 1;
+      if (keys.has("KeyD") || keys.has("ArrowRight")) mx += 1;
+      const moving = mx !== 0 || mz !== 0;
+      if (moving) {
+        const len = Math.hypot(mx, mz);
+        mx /= len;
+        mz /= len;
+        const sin = Math.sin(camYaw);
+        const cos = Math.cos(camYaw);
+        const wx = mx * cos - mz * sin;
+        const wz = mx * sin + mz * cos;
+        const speed = 4.6;
+        const nx = self.x + wx * speed * dt;
+        const nz = self.z + wz * speed * dt;
+        if (!clientWorld.blockedAt(nx, self.z)) self.x = nx;
+        if (!clientWorld.blockedAt(self.x, nz)) self.z = nz;
+        const ty = clientWorld.surfaceY(self.x, self.z);
+        self.y += (ty - self.y) * Math.min(1, dt * 12);
+        self.rotY = Math.atan2(wx, wz);
+      }
+      self.anim = moving ? "walk" : "idle";
+
+      moveTimer += dt;
+      if (moveTimer >= 0.1) {
+        moveTimer = 0;
+        sendMove({ x: self.x, y: self.y, z: self.z, rotY: self.rotY, anim: self.anim });
+      }
+    }
+
+    // 2. 道具弹出动画
+    for (const [id, t0] of popAnims) {
+      const t = (Date.now() - t0) / 380;
+      const pm = propMeshes.get(id);
+      if (!pm) {
+        popAnims.delete(id);
+        continue;
+      }
+      if (t >= 1) {
+        pm.mesh.scale.setScalar(1);
+        popAnims.delete(id);
+      } else {
+        const s = 1 - Math.pow(1 - t, 3);
+        pm.mesh.scale.setScalar(s);
+        pm.mesh.position.y = clientWorld.heightAt(pm.mesh.position.x, pm.mesh.position.z) + (1 - s) * 0.6;
+      }
+    }
+
+    // 3. 自身 avatar
+    selfAvatar.group.position.set(self.x, self.y, self.z);
+    selfAvatar.group.rotation.y = self.rotY;
+    animateAvatar(selfAvatar, self.anim, time);
+    setLabel("tag-self", st.selfName || "我", self.x, self.y + 1.4, self.z, "nameTag self");
+
+    // 4. 远端玩家插值
+    for (const [, r] of clientWorld.remotes) {
+      const av = r.group as Avatar;
+      const g = av.group;
+      g.position.x += (r.target.x - g.position.x) * Math.min(1, dt * 12);
+      g.position.y += (r.target.y - g.position.y) * Math.min(1, dt * 12);
+      g.position.z += (r.target.z - g.position.z) * Math.min(1, dt * 12);
+      const dRot = ((r.target.rotY - g.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      g.rotation.y += dRot * Math.min(1, dt * 12);
+      const dist = Math.hypot(r.target.x - g.position.x, r.target.z - g.position.z);
+      animateAvatar(av, dist > 0.1 ? "walk" : (r.info.anim === "walk" ? "walk" : "idle"), time);
+      setLabel(`tag-${r.info.id}`, r.info.name, g.position.x, g.position.y + 1.4, g.position.z, "nameTag");
+    }
+
+    // 5. 水面轻微波动
+    if (waterMesh) waterMesh.position.y = WATER_LEVEL + Math.sin(time * 1.4) * 0.06;
+
+    // 6. 射线悬停 + 高亮环 + 溯源提示
+    if (st.joined) {
+      hoverTarget = raycastWorld();
+      if (hoverTarget) {
+        highlightRing.visible = true;
+        highlightRing.position.set(hoverTarget.point.x, hoverTarget.point.y + 0.07, hoverTarget.point.z);
+        const o = hoverTarget.objectId ? clientWorld.objects.get(hoverTarget.objectId) : null;
+        if (o) {
+          hoverTooltip.innerHTML = `<b>✍️ 由 ${o.creatorName} 创建</b><span class="t">${new Date(
+            o.createdAt
+          ).toLocaleString("zh-CN", { hour12: false })}</span>`;
+          hoverTooltip.style.display = hoverScreen.x > 0 ? "" : "none";
+        } else {
+          hoverTooltip.style.display = "none";
+        }
+      } else {
+        highlightRing.visible = false;
+        hoverTooltip.style.display = "none";
+      }
+      if (hoverTooltip.style.display === "") {
+        hoverTooltip.style.left = `${hoverScreen.x + 14}px`;
+        hoverTooltip.style.top = `${hoverScreen.y + 10}px`;
+      }
+    }
+
+    // 7. 相机
+    camTarget.set(self.x, self.y + 1.2, self.z);
+    const camOff = new THREE.Vector3(
+      Math.sin(camYaw) * Math.cos(camPitch),
+      Math.sin(camPitch) + 0.22,
+      Math.cos(camYaw) * Math.cos(camPitch)
+    ).multiplyScalar(camDist);
+    const desired = camTarget.clone().add(camOff);
+    const groundY = clientWorld.surfaceY(desired.x, desired.z) + 0.8;
+    desired.y = Math.max(desired.y, groundY);
+    camCur.lerp(desired, Math.min(1, dt * 8));
+    camera.position.copy(camCur);
+    camera.lookAt(camTarget);
+
+    // 8. 标签投影
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const v = new THREE.Vector3();
+    for (const [, l] of labels) {
+      v.set(l.wx, l.wy, l.wz).project(camera);
+      const dist = camera.position.distanceTo(new THREE.Vector3(l.wx, l.wy, l.wz));
+      if (v.z > 1 || dist > l.maxDist) {
+        l.el.style.display = "none";
+        continue;
+      }
+      l.el.style.display = "";
+      l.el.style.left = `${(v.x * 0.5 + 0.5) * w}px`;
+      l.el.style.top = `${(-v.y * 0.5 + 0.5) * h}px`;
+    }
+
+    // 9. 产权标注浮签
+    if (st.showOwnerLabels) {
+      for (const [objId, pm] of propMeshes) {
+        if (pm.kind === "path") continue;
+        const o = clientWorld.objects.get(objId);
+        const icon = pm.kind === "tree" ? "🌳" : pm.kind === "flower" ? "🌼" : pm.kind === "house" ? "🏠" : pm.kind === "pond" ? "💧" : "🪵";
+        setLabel(
+          `obj-${objId}`,
+          `<span class="objLabel">${icon} ${o?.variant ?? pm.variant} · ${pm.creator}</span>`,
+          pm.mesh.position.x,
+          clientWorld.heightAt(pm.mesh.position.x, pm.mesh.position.z) + pm.labelY,
+          pm.mesh.position.z,
+          "objTag",
+          55
+        );
+      }
+    } else {
+      for (const [id] of labels) {
+        if (id.startsWith("obj-")) removeLabel(id);
+      }
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  tick();
+
+  const onResize = () => {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+  };
+  window.addEventListener("resize", onResize);
+
+  // 调试钩子（无头验证用）
+  (window as unknown as Record<string, unknown>).__world3d = { clientWorld, scene, propMeshes };
+
+  return {
+    dispose() {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("resize", onResize);
+      renderer.dispose();
+      container.innerHTML = "";
+      started = false;
+    },
+    setSpawn(p: { x: number; y: number; z: number }) {
+      self.x = p.x;
+      self.y = p.y;
+      self.z = p.z;
+      camTarget.set(p.x, p.y + 1.2, p.z);
+      camCur.set(p.x + 10, p.y + 15, p.z + 12);
+    },
+  };
+}

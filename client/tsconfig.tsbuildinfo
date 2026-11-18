@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/engine/game.ts","./src/engine/props.ts","./src/engine/quality.ts","./src/engine/terrain.ts","./src/engine/world.ts","./src/net/socket.ts","./src/scene/avatar.ts","./src/state/store.ts","./src/ui/hotbar.tsx"],"version":"5.9.3"}
