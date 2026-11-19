@@ -10,6 +10,10 @@ const PALETTE = ["#e8618c", "#5b8def", "#3aa981", "#d08a2e", "#9a6ee2", "#cf5b5b
 export interface Player extends PlayerInfo {
   socketId: string;
   lastMove: number;
+  /** 当前所在房间（null = 户外大世界）。房间内坐标为房间局部坐标 */
+  roomId: string | null;
+  /** 进房前的户外位置，离开房间时恢复 */
+  outdoor: { x: number; y: number; z: number; rotY: number } | null;
 }
 
 export class Presence {
@@ -40,6 +44,8 @@ export class Presence {
       anim: "idle",
       socketId,
       lastMove: Date.now(),
+      roomId: null,
+      outdoor: null,
     };
     this.players.set(id, p);
     return p;
@@ -70,11 +76,44 @@ export class Presence {
     return { id: p.id, name: p.name, color: p.color, x: p.x, y: p.y, z: p.z, rotY: p.rotY, anim: p.anim };
   }
 
+  /** 进/出房间：roomId 为 null 表示回到户外（恢复 outdoor 位置） */
+  setRoom(id: string, roomId: string | null, spawn?: { x: number; y: number; z: number }): Player | null {
+    const p = this.players.get(id);
+    if (!p) return null;
+    if (roomId) {
+      p.outdoor = { x: p.x, y: p.y, z: p.z, rotY: p.rotY };
+      p.roomId = roomId;
+      if (spawn) {
+        p.x = spawn.x;
+        p.y = spawn.y;
+        p.z = spawn.z;
+        p.rotY = spawn.z >= 0 ? Math.PI : 0; // 面向房间内
+      }
+    } else {
+      p.roomId = null;
+      if (p.outdoor) {
+        p.x = p.outdoor.x;
+        p.y = p.outdoor.y;
+        p.z = p.outdoor.z;
+        p.rotY = p.outdoor.rotY;
+      }
+      p.outdoor = null;
+    }
+    return p;
+  }
+
+  playersInRoom(roomId: string): Player[] {
+    return [...this.players.values()].filter((p) => p.roomId === roomId);
+  }
+
   private tick() {
     if (!this.io) return;
     const all = [...this.players.values()];
     for (const p of all) {
-      const nearby = all.filter((o) => o.id !== p.id && Math.hypot(o.x - p.x, o.z - p.z) <= INTEREST_RADIUS);
+      // 兴趣过滤：必须同处一个空间（同为户外或同房间）且距离足够近
+      const nearby = all.filter(
+        (o) => o.id !== p.id && o.roomId === p.roomId && Math.hypot(o.x - p.x, o.z - p.z) <= INTEREST_RADIUS
+      );
       const snap = {
         t: Date.now(),
         players: nearby.map((o) => this.publicInfo(o)),

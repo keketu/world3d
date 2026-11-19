@@ -76,6 +76,13 @@ export const PROP_KINDS: Record<string, PropKindDef> = {
     icon: "💧",
     variants: [{ variant: "池塘", label: "池塘", icon: "💧" }],
   },
+  office: {
+    kind: "office",
+    label: "办公楼",
+    collideR: 4.2,
+    icon: "🏢",
+    variants: [{ variant: "小世界科技", label: "小世界科技办公楼", icon: "🏢" }],
+  },
 };
 
 /** 手搓 hotbar 可放道具 */

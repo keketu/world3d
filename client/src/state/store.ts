@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ChatMessage, PlayerInfo, WorldObject, WorldMeta } from "@world3d/shared";
+import { AgentInfo, ChatMessage, DialogueLine, PlayerInfo, ProjectInfo, TaskInfo, WorldMeta, WorldObject } from "@world3d/shared";
 
 export type QualityTier = "low" | "mid" | "high";
 export type ViewMode = "third" | "first";
@@ -25,6 +25,17 @@ interface WorldState {
   aiBusy: boolean;
   viewMode: ViewMode;
 
+  // ---------- office 房间 ----------
+  inRoom: boolean;
+  roomId: string | null;
+  roomPrompt: "enter" | "leave" | null;
+  agents: AgentInfo[];
+  projects: ProjectInfo[];
+  tasks: TaskInfo[];
+  progress: Record<string, { startedAt: number; endsAt: number }>;
+  roomDialogues: DialogueLine[];
+  roomPanelOpen: boolean;
+
   setConnected(v: boolean): void;
   setJoined(name: string): void;
   setMeta(m: WorldMeta): void;
@@ -36,6 +47,16 @@ interface WorldState {
   setTier(t: QualityTier): void;
   setHotbar(i: number): void;
   toggleView(): void;
+
+  setInRoom(v: boolean, roomId: string | null): void;
+  setRoomPrompt(p: "enter" | "leave" | null): void;
+  setOfficeState(agents: AgentInfo[], projects: ProjectInfo[], tasks: TaskInfo[], dialogues: DialogueLine[]): void;
+  upsertAgent(a: AgentInfo): void;
+  upsertProject(p: ProjectInfo): void;
+  upsertTask(t: TaskInfo): void;
+  setProgress(taskId: string, startedAt: number, endsAt: number): void;
+  pushRoomDialogue(l: DialogueLine): void;
+  toggleRoomPanel(): void;
 }
 
 export const useWorld = create<WorldState>((set) => ({
@@ -54,6 +75,16 @@ export const useWorld = create<WorldState>((set) => ({
   aiBusy: false,
   viewMode: "third",
 
+  inRoom: false,
+  roomId: null,
+  roomPrompt: null,
+  agents: [],
+  projects: [],
+  tasks: [],
+  progress: {},
+  roomDialogues: [],
+  roomPanelOpen: false,
+
   setConnected: (v) => set({ connected: v }),
   setJoined: (name) => set({ joined: true, selfName: name }),
   setMeta: (m) => set({ meta: m }),
@@ -69,4 +100,14 @@ export const useWorld = create<WorldState>((set) => ({
   setTier: (t) => set({ tier: t }),
   setHotbar: (i) => set({ hotbarIndex: i }),
   toggleView: () => set((s) => ({ viewMode: s.viewMode === "third" ? "first" : "third" })),
+
+  setInRoom: (v, roomId) => set({ inRoom: v, roomId, roomPrompt: null, roomPanelOpen: false }),
+  setRoomPrompt: (p) => set({ roomPrompt: p }),
+  setOfficeState: (agents, projects, tasks, dialogues) => set({ agents, projects, tasks, roomDialogues: dialogues, progress: {} }),
+  upsertAgent: (a) => set((s) => ({ agents: s.agents.some((x) => x.id === a.id) ? s.agents.map((x) => (x.id === a.id ? a : x)) : [...s.agents, a] })),
+  upsertProject: (p) => set((s) => ({ projects: s.projects.some((x) => x.id === p.id) ? s.projects.map((x) => (x.id === p.id ? p : x)) : [...s.projects, p] })),
+  upsertTask: (t) => set((s) => ({ tasks: s.tasks.some((x) => x.id === t.id) ? s.tasks.map((x) => (x.id === t.id ? t : x)) : [...s.tasks, t] })),
+  setProgress: (taskId, startedAt, endsAt) => set((s) => ({ progress: { ...s.progress, [taskId]: { startedAt, endsAt } } })),
+  pushRoomDialogue: (l) => set((s) => ({ roomDialogues: [...s.roomDialogues.slice(-200), l] })),
+  toggleRoomPanel: () => set((s) => ({ roomPanelOpen: !s.roomPanelOpen })),
 }));

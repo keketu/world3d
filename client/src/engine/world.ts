@@ -115,6 +115,11 @@ class ClientWorld {
     this.remotes.delete(id);
   }
 
+  /** 进出房间时清空远程玩家（房间内外坐标不同步，需按空间重播种） */
+  clearRemotes() {
+    for (const id of [...this.remotes.keys()]) this.removeRemote(id);
+  }
+
   remoteFactory: ((p: PlayerInfo) => void) | null = null;
   remoteRemover: ((id: string) => void) | null = null;
 

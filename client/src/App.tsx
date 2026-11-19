@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useWorld } from "./state/store";
 import { startGame, GameHandle } from "./engine/game";
-import { connect, join, sendChat, sendAiBuild } from "./net/socket";
+import { connect, join, sendChat, sendAiBuild, sendRoomSay } from "./net/socket";
 import { ChatMessage } from "@world3d/shared";
 import { Hotbar } from "./ui/Hotbar";
+import { OfficePanel } from "./ui/OfficePanel";
+import { roomHost } from "./engine/roomHost";
 
 function Toaster() {
   const toasts = useWorld((s) => s.toasts);
@@ -36,7 +38,10 @@ function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boole
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    if (/种|盖|建|修|铺|挖|清空|围栏|栅栏|帮助|help/i.test(t)) {
+    // 房间内说话 = 老板发言（气泡 + PM 过来回应）
+    if (useWorld.getState().inRoom) {
+      sendRoomSay(t);
+    } else if (/种|盖|建|修|铺|挖|清空|围栏|栅栏|帮助|help/i.test(t)) {
       sendAiBuild(t);
     } else {
       sendChat(t);
@@ -122,6 +127,8 @@ export default function App() {
   const joined = useWorld((s) => s.joined);
   const viewMode = useWorld((s) => s.viewMode);
   const toggleView = useWorld((s) => s.toggleView);
+  const inRoom = useWorld((s) => s.inRoom);
+  const roomPrompt = useWorld((s) => s.roomPrompt);
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -163,11 +170,19 @@ export default function App() {
             </button>
           )}
           <Hotbar />
+          <OfficePanel />
+          {roomPrompt && (
+            <button className="doorBtn" onClick={() => roomHost.doorAction()}>
+              {roomPrompt === "enter" ? "🚪 进入办公室（E）" : "🚪 离开办公室（E）"}
+            </button>
+          )}
           <Toaster />
           <div className="hint">
-            {isTouch
-              ? "左下摇杆走动 · 点地面放置 · 长按拆除 · 右侧滑动转视角 · 双指缩放"
-              : "WASD 走动 · 拖拽转视角 · V 切换视角 · 选下方道具左键放置 · 右键拆除 · 对聊天框说「种一排樱花树」"}
+            {inRoom
+              ? "在聊天框说话=老板发言 · 点 📋 派项目（E）· 走到门口离开"
+              : isTouch
+                ? "左下摇杆走动 · 点地面放置 · 长按拆除 · 右侧滑动转视角 · 双指缩放"
+                : "WASD 走动 · 拖拽转视角 · V 切换视角 · 选下方道具左键放置 · 右键拆除 · 对聊天框说「种一排樱花树」"}
           </div>
         </div>
       )}

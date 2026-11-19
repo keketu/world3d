@@ -39,8 +39,8 @@ function box(w: number, h: number, d: number, color: string, x = 0, y = 0, z = 0
   return m;
 }
 
-/** 把 group 展开为非索引三角形并写入顶点色，合并为单 geometry */
-function paintAndMerge(group: THREE.Group): THREE.BufferGeometry {
+/** 把 group 展开为非索引三角形并写入顶点色，合并为单 geometry（房间/楼宇等大型静态物复用） */
+export function paintAndMerge(group: THREE.Group): THREE.BufferGeometry {
   group.updateMatrixWorld(true);
   const meshes: THREE.Mesh[] = [];
   group.traverse((child) => {
@@ -181,6 +181,36 @@ function buildPond(params: Record<string, unknown>, g: THREE.Group) {
   g.add(rim);
 }
 
+/** 办公楼外观（系统建筑）：两层小楼 + 玻璃窗 + 门 + 樱花粉招牌，门朝 +z */
+function buildOfficeBuilding(g: THREE.Group) {
+  // 主体两层
+  g.add(box(8, 2.7, 6, "#f2ead9", 0, 1.35, 0));
+  g.add(box(7, 2.3, 5, "#ead9bd", 0, 2.7 + 1.15, -0.3));
+  g.add(box(7.8, 0.3, 5.8, "#d9cdb4", 0, 5.2, -0.3)); // 屋顶板
+  g.add(box(7.2, 0.5, 5.2, "#c9b896", 0, 2.7, -0.3)); // 层间檐口
+  // 一层前窗 ×3（发光）
+  for (const wx of [-2.4, 0, 2.4]) {
+    g.add(box(1.5, 1.0, 0.1, "#cfe8f2", wx, 1.7, 3.02));
+    g.add(box(1.6, 1.1, 0.06, "#8a7c62", wx, 1.7, 3.0));
+  }
+  // 二层窗 ×3（发光）
+  for (const wx of [-2.0, 0, 2.0]) {
+    g.add(box(1.3, 0.9, 0.1, "#cfe8f2", wx, 3.85, 2.27));
+    g.add(box(1.4, 1.0, 0.06, "#8a7c62", wx, 3.85, 2.25));
+  }
+  // 门 + 门垫（前立面 +z，门垫在 doorDist 处）
+  g.add(box(1.3, 2.1, 0.16, "#a8805a", 0, 1.05, 3.04));
+  g.add(box(0.16, 2.2, 0.2, "#8a6a48", -0.75, 1.1, 3.05));
+  g.add(box(0.16, 2.2, 0.2, "#8a6a48", 0.75, 1.1, 3.05));
+  g.add(box(2.0, 0.05, 1.3, "#c65f76", 0, 0.03, 4.6));
+  // 雨棚
+  g.add(box(2.6, 0.14, 1.0, "#8a6a48", 0, 2.45, 3.4));
+  // 招牌（樱花粉底 + 白色圆点与横条 = 抽象 logo，不写字保字号清晰）
+  g.add(box(3.6, 0.75, 0.14, "#c65f76", 0, 3.15, 3.2));
+  g.add(sphere(0.17, "#fdf9f7", -1.25, 3.15, 3.29));
+  g.add(box(1.7, 0.16, 0.05, "#fdf9f7", 0.35, 3.15, 3.29));
+}
+
 export interface PropMeshResult {
   mesh: THREE.Mesh;
   /** 标注浮签高度 */
@@ -206,6 +236,10 @@ export function buildProp(o: WorldObject): PropMeshResult {
     case "house":
       buildHouse(o.variant, o.params ?? {}, g);
       labelY = 4.4;
+      break;
+    case "office":
+      buildOfficeBuilding(g);
+      labelY = 6.0;
       break;
     case "fence":
       buildFence(o.params ?? {}, g);

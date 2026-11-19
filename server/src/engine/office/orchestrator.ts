@@ -1,0 +1,527 @@
+import { randomUUID } from "node:crypto";
+import {
+  AgentOrder,
+  DialogueLine,
+  BOSS_SPOT,
+  COFFEE,
+  EMPLOYEE_DESKS,
+  MEETING,
+  ProjectInfo,
+  TaskInfo,
+} from "@world3d/shared";
+import { OfficeRoster, AgentRuntime } from "./roster.js";
+import { Brain, PlannedTask } from "./brain.js";
+import { ScriptedBrain } from "./scriptedBrain.js";
+import { AMBIENT_CHAT, pick } from "./scenarios.js";
+
+/** 编排器所需的持久化接口（由 world3d Db 实现 office 表） */
+export interface OfficeDb {
+  insertProject(p: ProjectInfo): void;
+  updateProject(p: ProjectInfo): void;
+  insertTask(t: TaskInfo): void;
+  updateTask(t: TaskInfo): void;
+  insertDialogue(l: DialogueLine): void;
+  loadPausedProjects(): Array<{ project: ProjectInfo; tasks: TaskInfo[] }>;
+}
+
+const WALK_SPEED = 1.7; // m/s，与前端一致
+const ARRIVED_TIMEOUT = 60_000;
+
+interface QueuedProject {
+  project: ProjectInfo;
+  tasks: TaskInfo[];
+  /** 服务重启后的恢复模式：跳过简报与规划，直接继续剩余任务 */
+  resume?: boolean;
+}
+
+export class Orchestrator {
+  private world: OfficeRoster;
+  private brain: Brain;
+  private pmBrain: ScriptedBrain;
+  private db: OfficeDb;
+  private io: null | { emit: (ev: string, payload: unknown) => void } = null;
+
+  private queue: QueuedProject[] = [];
+  private pmBusy = false;
+  private orderSeq = 0;
+  private arrivedWaiters = new Map<string, () => void>();
+  private ambientTimer: NodeJS.Timeout | null = null;
+
+  constructor(world: OfficeRoster, db: OfficeDb) {
+    this.world = world;
+    this.db = db;
+    this.brain = new ScriptedBrain();
+    this.pmBrain = new ScriptedBrain();
+  }
+
+  attach(io: { emit: (ev: string, payload: unknown) => void }) {
+    this.io = io;
+    this.startAmbientLoop();
+    this.resumePaused();
+  }
+
+  /** 服务重启后，恢复暂停的项目（跳过老板简报，直接继续剩余任务） */
+  private resumePaused() {
+    const paused = this.db.loadPausedProjects();
+    for (const { project, tasks } of paused) {
+      if (tasks.every((t) => t.status === "done")) {
+        project.status = "done";
+        project.finishedAt = project.finishedAt ?? Date.now();
+        this.db.updateProject(project);
+        continue;
+      }
+      project.status = "in_progress";
+      this.db.updateProject(project);
+      this.emit("project:updated", project);
+      this.queue.push({ project, tasks, resume: true });
+      this.emit("notify", { text: `🔄 恢复项目「${project.name}」（服务重启，继续未完成任务）` });
+    }
+    this.pumpQueue();
+  }
+
+  // ---------- 基础动作原语 ----------
+
+  private emit(ev: string, payload: unknown) {
+    this.io?.emit(ev, payload);
+  }
+
+  private issueOrder(order: AgentOrder): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.arrivedWaiters.delete(order.orderId);
+        resolve();
+      }, ARRIVED_TIMEOUT);
+      this.arrivedWaiters.set(order.orderId, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      this.emit("agent:order", order);
+    });
+  }
+
+  onArrived(agentId: string, orderId: string) {
+    const w = this.arrivedWaiters.get(orderId);
+    if (w) {
+      this.arrivedWaiters.delete(orderId);
+      w();
+    }
+  }
+
+  private walkDist(from: { x: number; z: number }, to: { x: number; z: number }) {
+    return Math.hypot(to.x - from.x, to.z - from.z);
+  }
+
+  private async walkTo(agent: AgentRuntime, to: { x: number; z: number }, faceTo?: { x: number; z: number }) {
+    const orderId = `ord-${++this.orderSeq}-${agent.id}`;
+    console.log(`[orch] walk ${agent.id} -> (${to.x},${to.z}) est...`);
+    const est = (this.walkDist(this.lastPos.get(agent.id) ?? agent.homeDesk.seat, to) / WALK_SPEED) * 1000;
+    this.lastPos.set(agent.id, to);
+    this.world.setActivity(agent.id, "walking");
+    const p = this.issueOrder({ orderId, type: "walk", agentId: agent.id, x: to.x, z: to.z, faceTo });
+    // 超时兜底：预计走路时间 + 5s 缓冲
+    setTimeout(() => this.onArrived(agent.id, orderId), Math.max(est + 5000, 4000));
+    await p;
+    console.log(`[orch] walk done ${agent.id}`);
+  }
+
+  private lastPos = new Map<string, { x: number; z: number }>();
+
+  private async sitAt(agent: AgentRuntime, seat: { x: number; z: number; rotY: number }) {
+    const orderId = `ord-${++this.orderSeq}-${agent.id}`;
+    this.lastPos.set(agent.id, seat);
+    const p = this.issueOrder({ orderId, type: "sitAt", agentId: agent.id, x: seat.x, z: seat.z, rotY: seat.rotY });
+    setTimeout(() => this.onArrived(agent.id, orderId), 2500);
+    await p;
+    agent.seated = true;
+  }
+
+  private async standUp(agent: AgentRuntime, faceTo?: { x: number; z: number }) {
+    if (!agent.seated) return;
+    const orderId = `ord-${++this.orderSeq}-${agent.id}`;
+    this.lastPos.set(agent.id, agent.homeDesk.seat);
+    const p = this.issueOrder({ orderId, type: "standUp", agentId: agent.id, faceTo });
+    setTimeout(() => this.onArrived(agent.id, orderId), 1200);
+    await p;
+    agent.seated = false;
+  }
+
+  private async face(agent: AgentRuntime, to: { x: number; z: number }) {
+    const orderId = `ord-${++this.orderSeq}-${agent.id}`;
+    this.issueOrder({ orderId, type: "face", agentId: agent.id, to });
+    await new Promise((r) => setTimeout(r, 350));
+  }
+
+  /** 说出一句对白：气泡 + 历史落库，等 holdMs 让观众读完 */
+  private async say(
+    agentId: string,
+    text: string,
+    opts: { projectId?: string; toAgentId?: string; kind: DialogueLine["kind"]; holdMs?: number } = { kind: "discuss" }
+  ) {
+    const line: DialogueLine = {
+      id: randomUUID(),
+      ts: Date.now(),
+      projectId: opts.projectId,
+      agentId,
+      toAgentId: opts.toAgentId,
+      text,
+      kind: opts.kind ?? "discuss",
+      holdMs: opts.holdMs ?? Math.max(2200, Math.min(5200, text.length * 190)),
+    };
+    console.log(`[orch] say ${agentId}: ${text.slice(0, 24)} (hold ${line.holdMs})`);
+    this.db.insertDialogue(line);
+    this.emit("dialogue:line", line);
+    this.world.setActivity(agentId, "talking");
+    await new Promise((r) => setTimeout(r, line.holdMs));
+  }
+
+  // ---------- 老板下单 ----------
+
+  async assignProject(brief: string) {
+    const name = brief.slice(0, 16) || "新项目";
+    const project: ProjectInfo = {
+      id: randomUUID(),
+      name,
+      brief,
+      status: "queued",
+      createdAt: Date.now(),
+    };
+    this.db.insertProject(project);
+    this.emit("project:updated", project);
+    this.queue.push({ project, tasks: [] });
+    this.emit("notify", { text: `📋 新项目进入队列：「${name}」` });
+    this.pumpQueue();
+  }
+
+  /** 老板闲聊：PM 过来回应一句 */
+  async bossChatter(text: string) {
+    await this.say("boss", text, { kind: "boss", holdMs: 3000 });
+    if (!this.pmBusy) {
+      const pm = this.world.get("pm");
+      await this.standUp(pm);
+      await this.walkTo(pm, BOSS_SPOT.standPoint, BOSS_SPOT.seat);
+      await this.say("pm", pick(["老板有什么指示？我随时待命 🫡", "在的在的，您说～", "收到收到，我记下来了 📝"]), {
+        kind: "discuss",
+      });
+      await this.walkTo(pm, pm.homeDesk.seat, { x: pm.homeDesk.desk.x, z: pm.homeDesk.desk.z - 3 });
+      await this.sitAt(pm, pm.homeDesk.seat);
+      this.world.setActivity("pm", "idle");
+    }
+  }
+
+  private async pumpQueue() {
+    if (this.pmBusy) return;
+    const next = this.queue.shift();
+    if (!next) return;
+    this.pmBusy = true;
+    this.runProject(next).finally(() => {
+      this.pmBusy = false;
+      this.pumpQueue();
+    });
+  }
+
+  // ---------- 项目生命周期 ----------
+
+  private async runProject(q: QueuedProject) {
+    const { project } = q;
+    const pm = this.world.get("pm");
+    const boss = this.world.get("boss");
+    let tasks: TaskInfo[];
+    let planned: PlannedTask[] | null = null;
+
+    if (q.resume) {
+      // 恢复模式：跳过简报与规划，直接继续未完成的任务
+      tasks = q.tasks;
+      project.status = "in_progress";
+      this.db.updateProject(project);
+      this.emit("project:updated", project);
+      await this.standUp(pm);
+      await this.say("pm", `大家稍等，服务刚重启过～我确认了下进度，继续推进「${project.name}」剩下的任务 💪`, {
+        projectId: project.id,
+        kind: "discuss",
+      });
+    } else {
+      project.status = "planning";
+      this.db.updateProject(project);
+      this.emit("project:updated", project);
+
+      // 1. PM 走到老板桌前接需求
+      await this.standUp(pm);
+      this.emit("notify", { text: `🚶 ${pm.name} 前往老板办公室接需求` });
+      await this.walkTo(pm, BOSS_SPOT.standPoint, BOSS_SPOT.seat);
+      await this.say("boss", `「${project.brief}」这个项目就交给你了，需要人手直接调配。`, {
+        projectId: project.id,
+        toAgentId: "pm",
+        kind: "boss",
+      });
+      await this.say("pm", this.pmBrain.acceptProject(project.brief), {
+        projectId: project.id,
+        toAgentId: "boss",
+        kind: "discuss",
+      });
+
+      // 2. 拆解任务
+      planned = await this.brain.planProject({ brief: project.brief, projectName: project.name });
+      tasks = planned.map((t, i) => ({
+        id: randomUUID(),
+        projectId: project.id,
+        title: t.title,
+        status: "pending",
+        order: i,
+      }));
+      tasks.forEach((t) => this.db.insertTask(t));
+      q.tasks = tasks;
+      project.status = "in_progress";
+      this.db.updateProject(project);
+      this.emit("project:updated", project);
+    }
+
+    // 3. 逐个派活（员工干活是异步并行的）
+    const workers: Array<{ agent: AgentRuntime; task: TaskInfo; done: Promise<void> }> = [];
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      if (task.status === "done") continue;
+      // 恢复模式下，把中断的任务重置为待派
+      if (task.status !== "pending") {
+        task.status = "pending";
+        this.db.updateTask(task);
+      }
+      const plannedTask = planned?.[i];
+      const employeeId = this.world.findFreeEmployee(plannedTask?.roles);
+      if (!employeeId) {
+        // 没有空闲员工：等一会儿再试
+        await new Promise((r) => setTimeout(r, 6000));
+        const retry = this.world.findFreeEmployee(plannedTask?.roles);
+        if (!retry) {
+          task.status = "done";
+          this.db.updateTask(task);
+          this.emit("task:updated", task);
+          continue;
+        }
+        task.assigneeId = retry;
+      } else {
+        task.assigneeId = employeeId;
+      }
+      const employee = this.world.get(task.assigneeId!);
+      this.db.updateTask(task);
+      this.emit("task:updated", task);
+
+      // PM 走到员工工位旁
+      this.emit("notify", { text: `🚶 ${pm.name} 找 ${employee.name} 面谈「${task.title}」` });
+      await this.walkTo(pm, employee.homeDesk.standPoint, employee.homeDesk.seat);
+
+      // 员工起身面朝 PM
+      await this.standUp(employee, employee.homeDesk.standPoint);
+      await this.face(employee, this.lastPos.get(pm.id) ?? BOSS_SPOT.standPoint);
+
+      // 面对面对话
+      const lines = await this.brain.discuss({
+        projectName: project.name,
+        taskTitle: task.title,
+        pmName: pm.name,
+        employeeName: employee.name,
+        employeeRole: employee.role,
+        employeePersonality: employee.personality,
+      });
+      for (const l of lines) {
+        const speaker = l.speaker === "pm" ? pm : employee;
+        const listener = l.speaker === "pm" ? employee.id : pm.id;
+        await this.say(speaker.id, l.text, { projectId: project.id, toAgentId: listener, kind: "discuss" });
+      }
+
+      // 员工回座开工（异步）
+      task.status = "in_progress";
+      this.db.updateTask(task);
+      this.emit("task:updated", task);
+      const done = this.startWorking(employee, task);
+      workers.push({ agent: employee, task, done });
+    }
+
+    // 4. PM 回自己工位等大家干完
+    await this.walkTo(pm, pm.homeDesk.standPoint, { x: pm.homeDesk.desk.x, z: pm.homeDesk.desk.z - 3 });
+    await this.sitAt(pm, pm.homeDesk.seat);
+    this.world.setActivity(pm.id, "working", { currentTask: `跟进「${project.name}」`, currentProjectId: project.id });
+    await Promise.all(
+      workers.map(async (w) => {
+        await w.done;
+        // 员工完工后回到工位坐好（startWorking 里已把活动置回 idle，但位置可能在会议中被动过）
+      })
+    );
+    this.world.setActivity(pm.id, "idle", { currentTask: undefined });
+
+    // 5. 全员会议
+    project.status = "meeting";
+    this.db.updateProject(project);
+    this.emit("project:updated", project);
+    await this.runMeeting(pm, project, tasks);
+
+    // 6. PM 向老板汇报
+    project.status = "reporting";
+    this.db.updateProject(project);
+    this.emit("project:updated", project);
+    await this.standUp(pm);
+    this.emit("notify", { text: `🚶 ${pm.name} 向老板汇报「${project.name}」` });
+    await this.walkTo(pm, BOSS_SPOT.standPoint, BOSS_SPOT.seat);
+    const report = await this.pmBrain.report({
+      projectName: project.name,
+      taskSummaries: tasks.map((t) => t.title),
+    });
+    await this.say("pm", report, { projectId: project.id, toAgentId: boss.id, kind: "report" });
+    await this.say("boss", pick(["干得漂亮 👍", "很好，这是今年的标杆项目。", "不错，辛苦大家了 🎉"]), {
+      projectId: project.id,
+      kind: "boss",
+    });
+    await this.walkTo(pm, pm.homeDesk.seat, { x: pm.homeDesk.desk.x, z: pm.homeDesk.desk.z - 3 });
+    await this.sitAt(pm, pm.homeDesk.seat);
+    this.world.setActivity(pm.id, "idle");
+
+    // 7. 完成
+    project.status = "done";
+    project.finishedAt = Date.now();
+    this.db.updateProject(project);
+    this.emit("project:updated", project);
+    this.emit("notify", { text: `🎉 项目「${project.name}」交付完成！` });
+  }
+
+  private startWorking(employee: AgentRuntime, task: TaskInfo): Promise<void> {
+    // 返回在任务完成时 resolve 的 Promise（供项目流程等待）
+    const duration = 14_000 + Math.floor(Math.random() * 10_000);
+    const startedAt = Date.now();
+    const endsAt = startedAt + duration;
+    (task as TaskInfo & { startedAt?: number; endsAt?: number }).startedAt = startedAt;
+    (task as TaskInfo & { startedAt?: number; endsAt?: number }).endsAt = endsAt;
+    this.emit("task:updated", task);
+    this.world.setActivity(employee.id, "working", {
+      currentTask: task.title,
+      currentProjectId: task.projectId,
+    });
+    return new Promise<void>((resolve) => {
+      const step = setInterval(() => {
+        this.emit("task:progress", { taskId: task.id, startedAt, endsAt });
+      }, 1000);
+      setTimeout(() => {
+        clearInterval(step);
+        task.status = "done";
+        this.db.updateTask(task);
+        this.emit("task:updated", task);
+        this.world.setActivity(employee.id, "idle", { currentTask: undefined, currentProjectId: undefined });
+        resolve();
+      }, duration);
+    });
+  }
+
+  private async runMeeting(pm: AgentRuntime, project: ProjectInfo, tasks: TaskInfo[]) {
+    this.emit("meeting:started", { projectId: project.id });
+    this.emit("notify", { text: `📢 ${pm.name} 召集全员会议` });
+    const pmAgent = pm;
+    const employees = [...this.world.agents.values()].filter((a) => a.role !== "boss" && a.role !== "pm");
+
+    await this.standUp(pmAgent);
+    // 会议对白准备
+    const attendees = [
+      { name: "PM", role: "pm", personality: "" },
+      ...employees.map((e) => ({ name: e.name, role: e.role, personality: e.personality })),
+    ];
+    const lines = await this.pmBrain.meeting({
+      projectName: project.name,
+      taskSummaries: tasks.map((t) => t.title),
+      attendees,
+    });
+
+    // 全员走向会议室（并行）
+    await Promise.all(
+      employees.map(async (e, i) => {
+        const seat = MEETING.seats[(i + 1) % MEETING.seats.length];
+        await this.standUp(e);
+        await this.walkTo(e, { x: seat.x, z: seat.z });
+        await this.sitAt(e, seat);
+        this.world.setActivity(e.id, "meeting");
+      })
+    );
+    const pmSeat = MEETING.seats[0];
+    await this.walkTo(pmAgent, { x: pmSeat.x, z: pmSeat.z });
+    await this.sitAt(pmAgent, pmSeat);
+    this.world.setActivity(pmAgent.id, "meeting", { currentProjectId: project.id });
+
+    // 轮流发言
+    for (const l of lines) {
+      const speaker = l.speakerIndex === 0 ? pmAgent : employees[l.speakerIndex - 1];
+      if (!speaker) continue;
+      await this.say(speaker.id, l.text, { projectId: project.id, kind: "meeting" });
+    }
+
+    // 散会：各自回工位（并行）
+    await Promise.all(
+      employees.map(async (e) => {
+        await this.walkTo(e, e.homeDesk.seat, { x: e.homeDesk.desk.x, z: e.homeDesk.desk.z - 3 });
+        await this.sitAt(e, e.homeDesk.seat);
+        this.world.setActivity(e.id, "idle");
+      })
+    );
+    this.emit("meeting:ended", { projectId: project.id });
+    await this.walkTo(pmAgent, pmAgent.homeDesk.seat, { x: pmAgent.homeDesk.desk.x, z: pmAgent.homeDesk.desk.z - 3 });
+    await this.sitAt(pmAgent, pmAgent.homeDesk.seat);
+    this.world.setActivity(pmAgent.id, "idle");
+  }
+
+  // ---------- 环境行为：让办公室有生命感 ----------
+
+  private ambientRunning = false;
+
+  startAmbientLoop() {
+    if (this.ambientTimer) return;
+    this.ambientTimer = setInterval(() => void this.ambientTick(), 9000);
+  }
+
+  private async ambientTick() {
+    if (this.ambientRunning || this.pmBusy) return;
+    const idleAgents = [...this.world.agents.values()].filter(
+      (a) => a.role !== "boss" && a.role !== "pm" && a.activity === "idle" && a.seated
+    );
+    if (idleAgents.length === 0) return;
+    if (Math.random() > 0.45) return;
+    this.ambientRunning = true;
+    try {
+      const a = pick(idleAgents);
+      if (Math.random() < 0.55) {
+        // 去咖啡角
+        await this.standUp(a);
+        this.world.setActivity(a.id, "coffee");
+        await this.walkTo(a, COFFEE.standPoint, { x: COFFEE.machine.x, z: COFFEE.machine.z });
+        await this.say(a.id, pick(AMBIENT_CHAT.coffee), { kind: "ambient" });
+        await this.walkTo(a, a.homeDesk.seat, { x: a.homeDesk.desk.x, z: a.homeDesk.desk.z - 3 });
+        await this.sitAt(a, a.homeDesk.seat);
+        this.world.setActivity(a.id, "idle");
+      } else {
+        // 找另一个空闲员工闲聊
+        const others = idleAgents.filter((o) => o.id !== a.id && o.activity === "idle");
+        if (others.length === 0) return;
+        const b = pick(others);
+        const mid = {
+          x: (a.homeDesk.standPoint.x + b.homeDesk.standPoint.x) / 2,
+          z: (a.homeDesk.standPoint.z + b.homeDesk.standPoint.z) / 2 + 1.6,
+        };
+        await this.standUp(a);
+        await this.standUp(b);
+        this.world.setActivity(a.id, "talking");
+        this.world.setActivity(b.id, "talking");
+        await Promise.all([
+          this.walkTo(a, { x: mid.x - 0.5, z: mid.z }, { x: mid.x + 0.5, z: mid.z }),
+          this.walkTo(b, { x: mid.x + 0.5, z: mid.z }, { x: mid.x - 0.5, z: mid.z }),
+        ]);
+        await this.say(a.id, pick(AMBIENT_CHAT.chat), { kind: "ambient", holdMs: 2400 });
+        await this.say(b.id, pick(AMBIENT_CHAT.reply), { kind: "ambient", holdMs: 2400 });
+        await Promise.all([
+          this.walkTo(a, a.homeDesk.seat, { x: a.homeDesk.desk.x, z: a.homeDesk.desk.z - 3 }),
+          this.walkTo(b, b.homeDesk.seat, { x: b.homeDesk.desk.x, z: b.homeDesk.desk.z - 3 }),
+        ]);
+        await Promise.all([this.sitAt(a, a.homeDesk.seat), this.sitAt(b, b.homeDesk.seat)]);
+        this.world.setActivity(a.id, "idle");
+        this.world.setActivity(b.id, "idle");
+      }
+    } catch {
+      // 环境行为失败无所谓
+    } finally {
+      this.ambientRunning = false;
+    }
+  }
+}

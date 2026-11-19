@@ -8,6 +8,7 @@ import { createAvatar, animateAvatar, Avatar } from "../scene/avatar";
 import { useWorld } from "../state/store";
 import { qualityFor, applyQuality, detectTier } from "./quality";
 import { sendMove } from "../net/socket";
+import { roomHost } from "./roomHost";
 
 export interface GameHandle {
   dispose(): void;
@@ -95,6 +96,11 @@ export function startGame(container: HTMLElement): GameHandle {
     propGroup.add(mesh);
     propMeshes.set(o.id, { mesh, labelY, creator: o.creatorName, variant: o.variant, kind: o.kind });
     if (animate) popAnims.set(o.id, 0);
+    // 办公楼：计算门口世界坐标（进门触发点）
+    if (o.kind === "office") {
+      const doorDist = Number(o.params?.doorDist ?? 4.6);
+      roomHost.setDoorWorld(o.x + Math.sin(o.rotY) * doorDist, o.z + Math.cos(o.rotY) * doorDist);
+    }
   }
 
   clientWorld.onObjectAdded = (o, animate) => spawnProp(o, animate);
@@ -125,6 +131,11 @@ export function startGame(container: HTMLElement): GameHandle {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     keys.add(e.code);
     if (e.code === "KeyV") useWorld.getState().toggleView();
+    if (e.code === "KeyE") {
+      const st = useWorld.getState();
+      if (st.roomPrompt) roomHost.doorAction();
+      else if (st.inRoom) st.toggleRoomPanel();
+    }
     if (e.code.startsWith("Digit")) {
       const n = parseInt(e.code.slice(5)) - 1;
       if (n >= 0 && n < HOTBAR_PROPS.length) useWorld.getState().setHotbar(n);
@@ -263,8 +274,9 @@ export function startGame(container: HTMLElement): GameHandle {
       p.lx = e.clientX;
       p.ly = e.clientY;
       camYaw -= dx * 0.0052;
-      // 第一人称允许略微仰视（可越过地平线），第三人称保持俯视区间
-      const [pMin, pMax] = viewMode === "first" ? [-0.55, 1.35] : [0.15, 1.45];
+      // 俯仰钳制：第一人称可略仰视；房间内保持俯视区间（不穿墙）
+      const [pMin, pMax] =
+        viewMode === "first" ? [-0.55, 1.35] : roomHost.active ? [0.55, 1.45] : [0.15, 1.45];
       camPitch = Math.max(pMin, Math.min(pMax, camPitch + dy * 0.0042));
     }
   };
@@ -428,6 +440,43 @@ export function startGame(container: HTMLElement): GameHandle {
   container.appendChild(hoverTooltip);
   const hoverScreen = { x: -1, y: -1 };
 
+  // ---------- 房间宿主接线 ----------
+  roomHost.init({
+    scene,
+    fog,
+    labels: { setLabel, removeLabel },
+    setSelf: (x, y, z, rotY) => {
+      self.x = x;
+      self.y = y;
+      self.z = z;
+      if (rotY !== undefined) self.rotY = rotY;
+      camTarget.set(x, y + 1.2, z);
+      camCur.set(x, y + 4, z + 6);
+    },
+    getSelf: () => ({ x: self.x, y: self.y, z: self.z, rotY: self.rotY }),
+    getCamDist: () => camDist,
+    setCamDist: (d) => {
+      camDist = d;
+    },
+    setCamPitch: (p) => {
+      camPitch = p;
+    },
+    outdoor: {
+      get terrain() {
+        return terrainMesh;
+      },
+      get water() {
+        return waterMesh;
+      },
+      get propGroup() {
+        return propGroup;
+      },
+      get highlightRing() {
+        return highlightRing;
+      },
+    },
+  });
+
   // ---------- 远端玩家 ----------
   clientWorld.remoteFactory = (p: PlayerInfo) => {
     // 防御：任何路径都不给自己建远程分身
@@ -488,10 +537,17 @@ export function startGame(container: HTMLElement): GameHandle {
         const speed = 4.6;
         const nx = self.x + wx * speed * dt;
         const nz = self.z + wz * speed * dt;
-        if (!clientWorld.blockedAt(nx, self.z)) self.x = nx;
-        if (!clientWorld.blockedAt(self.x, nz)) self.z = nz;
-        const ty = clientWorld.surfaceY(self.x, self.z);
-        self.y += (ty - self.y) * Math.min(1, dt * 12);
+        if (roomHost.active) {
+          // 房间模式：局部坐标 + 房间碰撞
+          if (!roomHost.movementBlocked(nx, self.z)) self.x = nx;
+          if (!roomHost.movementBlocked(self.x, nz)) self.z = nz;
+          self.y = 0;
+        } else {
+          if (!clientWorld.blockedAt(nx, self.z)) self.x = nx;
+          if (!clientWorld.blockedAt(self.x, nz)) self.z = nz;
+          const ty = clientWorld.surfaceY(self.x, self.z);
+          self.y += (ty - self.y) * Math.min(1, dt * 12);
+        }
         self.rotY = Math.atan2(wx, wz);
       }
       self.anim = moving ? "walk" : "idle";
@@ -544,8 +600,8 @@ export function startGame(container: HTMLElement): GameHandle {
     // 5. 水面轻微波动
     if (waterMesh) waterMesh.position.y = WATER_LEVEL + Math.sin(time * 1.4) * 0.06;
 
-    // 6. 射线悬停 + 高亮环 + 溯源提示
-    if (st.joined) {
+    // 6. 射线悬停 + 高亮环 + 溯源提示（房间内跳过：户外射线无意义）
+    if (st.joined && !roomHost.active) {
       hoverTarget = raycastWorld();
       if (hoverTarget) {
         highlightRing.visible = true;
@@ -578,8 +634,13 @@ export function startGame(container: HTMLElement): GameHandle {
         camPitch = Math.min(Math.max(-0.55, camPitch), 0.28); // 切入时近乎平视，看地平线而非脚底
         camCur.set(self.x, self.y + 1.5, self.z); // 避免切回第三人称时相机漂移
       } else {
-        camPitch = Math.max(0.15, Math.min(1.45, camPitch));
+        camPitch = roomHost.active ? Math.max(0.55, Math.min(1.45, camPitch)) : Math.max(0.15, Math.min(1.45, camPitch));
       }
+    }
+    // 门口提示检测（每帧，廉价）
+    if (st.joined) {
+      const prompt = roomHost.doorPrompt;
+      if (st.roomPrompt !== prompt) st.setRoomPrompt(prompt);
     }
     camTarget.set(self.x, self.y + 1.2, self.z);
     if (viewMode === "first") {
@@ -591,14 +652,19 @@ export function startGame(container: HTMLElement): GameHandle {
         self.z - Math.cos(camYaw) * cp
       );
     } else {
+      const [dMin, dMax] = roomHost.cameraDistRange();
+      const effDist = Math.max(dMin, Math.min(dMax, camDist));
       const camOff = new THREE.Vector3(
         Math.sin(camYaw) * Math.cos(camPitch),
         Math.sin(camPitch) + 0.22,
         Math.cos(camYaw) * Math.cos(camPitch)
-      ).multiplyScalar(camDist);
+      ).multiplyScalar(effDist);
       const desired = camTarget.clone().add(camOff);
-      const groundY = clientWorld.surfaceY(desired.x, desired.z) + 0.8;
-      desired.y = Math.max(desired.y, groundY);
+      if (!roomHost.active) {
+        // 户外：相机不钻地；房间内地面 y=0，不适用地形钳制
+        const groundY = clientWorld.surfaceY(desired.x, desired.z) + 0.8;
+        desired.y = Math.max(desired.y, groundY);
+      }
       camCur.lerp(desired, Math.min(1, dt * 8));
       camera.position.copy(camCur);
       camera.lookAt(camTarget);
@@ -648,6 +714,9 @@ export function startGame(container: HTMLElement): GameHandle {
       }
     }
 
+    // 10. 房间系统（agent 状态机/动画/名牌/气泡）
+    roomHost.update(dt, time);
+
     renderer.render(scene, camera);
   }
 
@@ -661,7 +730,22 @@ export function startGame(container: HTMLElement): GameHandle {
   window.addEventListener("resize", onResize);
 
   // 调试钩子（无头验证用）
-  (window as unknown as Record<string, unknown>).__world3d = { clientWorld, scene, propMeshes, joy, pointers, joyId: () => joyId, viewMode: () => viewMode };
+  (window as unknown as Record<string, unknown>).__world3d = {
+    clientWorld,
+    scene,
+    propMeshes,
+    joy,
+    pointers,
+    joyId: () => joyId,
+    viewMode: () => viewMode,
+    selfPos: () => ({ ...self }),
+    teleport: (x: number, z: number, y?: number) => {
+      self.x = x;
+      self.z = z;
+      if (y !== undefined) self.y = y;
+    },
+    store: useWorld,
+  };
 
   return {
     dispose() {

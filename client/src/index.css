@@ -627,6 +627,343 @@ body,
   transform: scale(0.94);
 }
 
+/* ---------- Office 房间 UI ---------- */
+.doorBtn {
+  position: absolute;
+  bottom: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 1px solid var(--site-accent-soft);
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: var(--ring), 0 8px 24px rgba(198, 95, 118, 0.4);
+  z-index: 16;
+  animation: doorPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes doorPulse {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-3px);
+  }
+}
+
+.officeFab {
+  position: absolute;
+  right: 14px;
+  bottom: 198px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid var(--site-border);
+  background: var(--site-surface-strong);
+  backdrop-filter: blur(10px);
+  color: var(--site-fg);
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: var(--ring), 0 6px 18px rgba(84, 62, 52, 0.18);
+  z-index: 15;
+}
+
+.officePanel {
+  position: absolute;
+  top: 56px;
+  right: 14px;
+  width: 300px;
+  max-height: calc(100% - 140px);
+  display: flex;
+  flex-direction: column;
+  background: var(--site-surface-strong);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--site-border);
+  border-radius: calc(var(--site-radius) + 2px);
+  box-shadow: var(--whisper-deep);
+  pointer-events: auto;
+  z-index: 18;
+  overflow: hidden;
+}
+
+.officeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12px;
+  color: var(--site-muted);
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--site-border);
+}
+
+.officeClose {
+  color: var(--site-tertiary);
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(232, 230, 220, 0.6);
+}
+
+.officeTabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+
+.officeTab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px;
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--site-muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.officeTab.on {
+  background: var(--site-accent-wash);
+  color: var(--site-accent);
+  font-weight: 600;
+}
+
+.officeBody {
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+
+.officeChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chip {
+  border: 1px solid var(--site-border);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 12px;
+  color: var(--site-fg);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--motion), border-color var(--motion);
+}
+
+.chip:hover {
+  border-color: var(--site-accent-soft);
+  background: var(--site-accent-wash);
+}
+
+.officeAssignRow {
+  display: flex;
+  gap: 6px;
+}
+
+.officeInput {
+  flex: 1;
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.7);
+  font-family: inherit;
+  color: var(--site-fg);
+  box-shadow: var(--ring);
+}
+
+.officeInput:focus {
+  border-color: var(--site-accent-soft);
+}
+
+.officeSend {
+  border: none;
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.officeAgents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.agentDot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--site-muted);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--site-border);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.agentDot i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.agentDot.working i,
+.agentDot.meeting i,
+.agentDot.talking i {
+  animation: blink 1s ease-in-out infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.officeBoard {
+  max-height: 300px;
+}
+
+.officeEmpty {
+  font-size: 12px;
+  color: var(--site-tertiary);
+  text-align: center;
+  padding: 18px 0;
+}
+
+.projCard {
+  border: 1px solid var(--site-border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.projRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 5px;
+}
+
+.projStatus {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.st-queued { background: #efece3; color: #87867f; }
+.st-planning { background: #e3ecf6; color: #5a7fb0; }
+.st-doing { background: #def0e2; color: #4f8a5e; }
+.st-meeting { background: #f6e7d4; color: #b07d3a; }
+.st-reporting { background: #f3e2ea; color: #a55d78; }
+.st-done { background: #e6e9e2; color: #6b7563; }
+.st-paused { background: #f0d9d9; color: #a35d5d; }
+
+.taskRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--site-muted);
+  padding: 2px 0;
+}
+
+.taskTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskWho {
+  font-style: normal;
+  color: var(--site-tertiary);
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+.taskBar {
+  width: 56px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.taskBar i {
+  display: block;
+  height: 100%;
+  background: var(--site-accent-soft);
+  border-radius: 999px;
+}
+
+.officeLog {
+  border-top: 1px solid var(--site-border);
+  padding: 8px 12px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+.logLine {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--site-muted);
+  word-break: break-all;
+}
+
+.logLine i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+
+.logLine b {
+  color: var(--site-fg);
+  flex-shrink: 0;
+}
+
+@media (pointer: coarse) {
+  .officePanel {
+    left: 10px;
+    right: 10px;
+    width: auto;
+    top: auto;
+    bottom: 10px;
+    max-height: 52vh;
+  }
+  .officeFab {
+    bottom: 252px;
+  }
+}
+
 .chatClose {
   border: none;
   background: transparent;

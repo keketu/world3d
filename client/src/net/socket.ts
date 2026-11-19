@@ -8,12 +8,15 @@ import {
   PlacePayload,
   PlayerInfo,
   RemovePayload,
+  RoomHello,
   SnapshotPayload,
   SculptPayload,
   WorldObject,
 } from "@world3d/shared";
 import { useWorld } from "../state/store";
 import { clientWorld } from "../engine/world";
+import { charSystem } from "../scene/office/agentSystem";
+import { roomHost } from "../engine/roomHost";
 
 let socket: Socket | null = null;
 
@@ -85,7 +88,81 @@ export function connect(): Socket {
     useWorld.setState({ aiBusy: false });
   });
 
+  // ---------- office 房间 ----------
+  socket.on("room:playerJoin", (p) => {
+    clientWorld.addRemote(p);
+  });
+
+  socket.on("room:playerLeave", ({ id }: { id: string }) => {
+    clientWorld.removeRemote(id);
+  });
+
+  socket.on("room:agent", (a) => {
+    roomHost.updateAgent(a);
+  });
+
+  socket.on("room:order", (o) => {
+    charSystem.push(o);
+  });
+
+  socket.on("room:dialogue", (l) => {
+    useWorld.getState().pushRoomDialogue(l);
+    roomHost.showBubble(l.agentId, l.text, l.holdMs);
+  });
+
+  socket.on("room:project", (p) => {
+    useWorld.getState().upsertProject(p);
+  });
+
+  socket.on("room:task", (t) => {
+    useWorld.getState().upsertTask(t);
+  });
+
+  socket.on("room:progress", ({ taskId, startedAt, endsAt }: { taskId: string; startedAt: number; endsAt: number }) => {
+    useWorld.getState().setProgress(taskId, startedAt, endsAt);
+  });
+
+  socket.on("room:notify", ({ text }: { text: string }) => {
+    useWorld.getState().pushToast(text);
+  });
+
+  socket.on("room:meeting:started", () => {
+    useWorld.getState().pushToast("📢 全员会议开始");
+  });
+
+  socket.on("room:meeting:ended", () => {
+    useWorld.getState().pushToast("✅ 会议结束");
+  });
+
   return socket;
+}
+
+export function sendRoomJoin() {
+  socket?.emit("room:join", {}, (h: RoomHello | { ok: false; reason: string }) => {
+    if (h && typeof h === "object" && "ok" in h && (h as { ok: false }).ok === false) {
+      useWorld.getState().pushToast((h as { reason: string }).reason);
+      return;
+    }
+    roomHost.enterWithHello(h as RoomHello);
+  });
+}
+
+export function sendRoomLeave() {
+  socket?.emit("room:leave", {}, (res: { ok: boolean; outdoor?: { x: number; y: number; z: number; rotY: number } }) => {
+    if (res?.ok && res.outdoor) roomHost.exitTo(res.outdoor);
+  });
+}
+
+export function sendRoomArrived(agentId: string, orderId: string) {
+  socket?.emit("room:arrived", { agentId, orderId });
+}
+
+export function sendRoomAssign(brief: string) {
+  socket?.emit("room:assign", { brief });
+}
+
+export function sendRoomSay(text: string) {
+  socket?.emit("room:say", { text });
 }
 
 export function join(name: string, onHello: (h: HelloPayload) => void) {
