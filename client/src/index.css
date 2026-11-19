@@ -605,6 +605,28 @@ body,
   transform: translateY(-2px);
 }
 
+.viewFab {
+  position: absolute;
+  right: 14px;
+  bottom: 140px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid var(--site-border);
+  background: var(--site-surface-strong);
+  backdrop-filter: blur(10px);
+  color: var(--site-fg);
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: var(--ring), 0 6px 18px rgba(84, 62, 52, 0.18);
+  z-index: 15;
+  transition: transform var(--motion);
+}
+
+.viewFab:active {
+  transform: scale(0.94);
+}
+
 .chatClose {
   border: none;
   background: transparent;

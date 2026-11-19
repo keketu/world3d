@@ -117,12 +117,14 @@ export function startGame(container: HTMLElement): GameHandle {
   let camYaw = Math.PI * 0.3;
   let camPitch = 0.72;
   let camDist = 13;
+  let viewMode: "third" | "first" = "third";
 
   // ---------- 输入（鼠标/触摸统一 Pointer Events） ----------
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     keys.add(e.code);
+    if (e.code === "KeyV") useWorld.getState().toggleView();
     if (e.code.startsWith("Digit")) {
       const n = parseInt(e.code.slice(5)) - 1;
       if (n >= 0 && n < HOTBAR_PROPS.length) useWorld.getState().setHotbar(n);
@@ -241,7 +243,15 @@ export function startGame(container: HTMLElement): GameHandle {
         const pts = camPointers.map(([, q]) => ({ x: q.lx, y: q.ly }));
         if (pts.length === 2) {
           const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-          if (lastPinch > 0) camDist = Math.max(5, Math.min(30, camDist - (d - lastPinch) * 0.06));
+          if (lastPinch > 0) {
+            if (viewMode === "first") {
+              // 第一人称：捏合变焦（FOV）
+              camera.fov = Math.max(42, Math.min(80, camera.fov + (d - lastPinch) * 0.12));
+              camera.updateProjectionMatrix();
+            } else {
+              camDist = Math.max(5, Math.min(30, camDist - (d - lastPinch) * 0.06));
+            }
+          }
           lastPinch = d;
         }
         p.moved += 10;
@@ -253,7 +263,9 @@ export function startGame(container: HTMLElement): GameHandle {
       p.lx = e.clientX;
       p.ly = e.clientY;
       camYaw -= dx * 0.0052;
-      camPitch = Math.max(0.15, Math.min(1.45, camPitch + dy * 0.0042));
+      // 第一人称允许略微仰视（可越过地平线），第三人称保持俯视区间
+      const [pMin, pMax] = viewMode === "first" ? [-0.55, 1.35] : [0.15, 1.45];
+      camPitch = Math.max(pMin, Math.min(pMax, camPitch + dy * 0.0042));
     }
   };
 
@@ -291,7 +303,13 @@ export function startGame(container: HTMLElement): GameHandle {
   };
 
   const onWheel = (e: WheelEvent) => {
-    camDist = Math.max(5, Math.min(30, camDist + Math.sign(e.deltaY) * 1.5));
+    if (viewMode === "first") {
+      // 第一人称：滚轮变焦（FOV）
+      camera.fov = Math.max(42, Math.min(80, camera.fov + Math.sign(e.deltaY) * 4));
+      camera.updateProjectionMatrix();
+    } else {
+      camDist = Math.max(5, Math.min(30, camDist + Math.sign(e.deltaY) * 1.5));
+    }
   };
   const onContext = (e: Event) => e.preventDefault();
   if (typeof window.PointerEvent === "function") {
@@ -549,19 +567,41 @@ export function startGame(container: HTMLElement): GameHandle {
       }
     }
 
-    // 7. 相机
+    // 7. 相机（第三人称环绕 / 第一人称眼位，store 驱动可切换）
+    if (st.viewMode !== viewMode) {
+      viewMode = st.viewMode;
+      camera.fov = 58;
+      camera.updateProjectionMatrix();
+      if (viewMode === "first") {
+        camPitch = Math.min(Math.max(-0.55, camPitch), 0.28); // 切入时近乎平视，看地平线而非脚底
+        camCur.set(self.x, self.y + 1.5, self.z); // 避免切回第三人称时相机漂移
+      } else {
+        camPitch = Math.max(0.15, Math.min(1.45, camPitch));
+      }
+    }
     camTarget.set(self.x, self.y + 1.2, self.z);
-    const camOff = new THREE.Vector3(
-      Math.sin(camYaw) * Math.cos(camPitch),
-      Math.sin(camPitch) + 0.22,
-      Math.cos(camYaw) * Math.cos(camPitch)
-    ).multiplyScalar(camDist);
-    const desired = camTarget.clone().add(camOff);
-    const groundY = clientWorld.surfaceY(desired.x, desired.z) + 0.8;
-    desired.y = Math.max(desired.y, groundY);
-    camCur.lerp(desired, Math.min(1, dt * 8));
-    camera.position.copy(camCur);
-    camera.lookAt(camTarget);
+    if (viewMode === "first") {
+      const cp = Math.cos(camPitch);
+      camera.position.set(self.x, self.y + 1.5, self.z);
+      camera.lookAt(
+        self.x + Math.sin(camYaw) * cp,
+        self.y + 1.5 - Math.sin(camPitch),
+        self.z - Math.cos(camYaw) * cp
+      );
+    } else {
+      const camOff = new THREE.Vector3(
+        Math.sin(camYaw) * Math.cos(camPitch),
+        Math.sin(camPitch) + 0.22,
+        Math.cos(camYaw) * Math.cos(camPitch)
+      ).multiplyScalar(camDist);
+      const desired = camTarget.clone().add(camOff);
+      const groundY = clientWorld.surfaceY(desired.x, desired.z) + 0.8;
+      desired.y = Math.max(desired.y, groundY);
+      camCur.lerp(desired, Math.min(1, dt * 8));
+      camera.position.copy(camCur);
+      camera.lookAt(camTarget);
+    }
+    selfAvatar.group.visible = viewMode === "third";
 
     // 8. 标签投影
     const w = container.clientWidth;
@@ -570,6 +610,11 @@ export function startGame(container: HTMLElement): GameHandle {
     for (const [, l] of labels) {
       v.set(l.wx, l.wy, l.wz).project(camera);
       const dist = camera.position.distanceTo(new THREE.Vector3(l.wx, l.wy, l.wz));
+      // 第一人称隐藏自己的名牌（投影在屏幕中央很怪）
+      if (viewMode === "first" && l === labels.get("tag-self")) {
+        l.el.style.display = "none";
+        continue;
+      }
       if (v.z > 1 || dist > l.maxDist) {
         l.el.style.display = "none";
         continue;
@@ -614,7 +659,7 @@ export function startGame(container: HTMLElement): GameHandle {
   window.addEventListener("resize", onResize);
 
   // 调试钩子（无头验证用）
-  (window as unknown as Record<string, unknown>).__world3d = { clientWorld, scene, propMeshes, joy, pointers, joyId: () => joyId };
+  (window as unknown as Record<string, unknown>).__world3d = { clientWorld, scene, propMeshes, joy, pointers, joyId: () => joyId, viewMode: () => viewMode };
 
   return {
     dispose() {

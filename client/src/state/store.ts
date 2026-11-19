@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { ChatMessage, PlayerInfo, WorldObject, WorldMeta } from "@world3d/shared";
 
 export type QualityTier = "low" | "mid" | "high";
+export type ViewMode = "third" | "first";
 
 export interface Toast {
   id: number;
@@ -22,6 +23,7 @@ interface WorldState {
   tier: QualityTier;
   hotbarIndex: number;
   aiBusy: boolean;
+  viewMode: ViewMode;
 
   setConnected(v: boolean): void;
   setJoined(name: string): void;
@@ -33,6 +35,7 @@ interface WorldState {
   toggleOwnerLabels(): void;
   setTier(t: QualityTier): void;
   setHotbar(i: number): void;
+  toggleView(): void;
 }
 
 export const useWorld = create<WorldState>((set) => ({
@@ -49,6 +52,7 @@ export const useWorld = create<WorldState>((set) => ({
   tier: "mid",
   hotbarIndex: 0,
   aiBusy: false,
+  viewMode: "third",
 
   setConnected: (v) => set({ connected: v }),
   setJoined: (name) => set({ joined: true, selfName: name }),
@@ -64,4 +68,5 @@ export const useWorld = create<WorldState>((set) => ({
   toggleOwnerLabels: () => set((s) => ({ showOwnerLabels: !s.showOwnerLabels })),
   setTier: (t) => set({ tier: t }),
   setHotbar: (i) => set({ hotbarIndex: i }),
+  toggleView: () => set((s) => ({ viewMode: s.viewMode === "third" ? "first" : "third" })),
 }));

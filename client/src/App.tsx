@@ -91,6 +91,8 @@ function TopBar() {
   const showOwnerLabels = useWorld((s) => s.showOwnerLabels);
   const toggleOwnerLabels = useWorld((s) => s.toggleOwnerLabels);
   const setTier = useWorld((s) => s.setTier);
+  const viewMode = useWorld((s) => s.viewMode);
+  const toggleView = useWorld((s) => s.toggleView);
   const TIER_LABEL = { low: "流畅", mid: "均衡", high: "高清" } as const;
 
   return (
@@ -100,6 +102,9 @@ function TopBar() {
       <div className="playersPill">👥 {players.length + 1}</div>
       <button className={`toggleBtn ${showOwnerLabels ? "on" : ""}`} onClick={toggleOwnerLabels} title="显示每个造物的创建者">
         ✍️ 产权标注
+      </button>
+      <button className="toggleBtn" onClick={toggleView} title="切换第一/第三人称（快捷键 V）">
+        {viewMode === "third" ? "👁 第一人称" : "🎥 第三人称"}
       </button>
       <div className="qualitySel">
         画质：
@@ -115,6 +120,8 @@ function TopBar() {
 
 export default function App() {
   const joined = useWorld((s) => s.joined);
+  const viewMode = useWorld((s) => s.viewMode);
+  const toggleView = useWorld((s) => s.toggleView);
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -150,12 +157,17 @@ export default function App() {
               💬
             </button>
           )}
+          {isTouch && (
+            <button className="viewFab" onClick={toggleView} title="切换第一/第三人称">
+              {viewMode === "third" ? "👁" : "🎥"}
+            </button>
+          )}
           <Hotbar />
           <Toaster />
           <div className="hint">
             {isTouch
               ? "左下摇杆走动 · 点地面放置 · 长按拆除 · 右侧滑动转视角 · 双指缩放"
-              : "WASD 走动 · 拖拽转视角 · 选下方道具左键放置 · 右键拆除自己的造物 · 对聊天框说「种一排樱花树」"}
+              : "WASD 走动 · 拖拽转视角 · V 切换视角 · 选下方道具左键放置 · 右键拆除 · 对聊天框说「种一排樱花树」"}
           </div>
         </div>
       )}
