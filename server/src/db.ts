@@ -2,7 +2,7 @@ import BetterSqlite3 from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import { AdminUserRow, DialogueLine, ProjectInfo, TaskInfo, TerrainMod, WorldObject } from "@world3d/shared";
+import { AdminUserRow, AuditRow, DialogueLine, EventRow, ProjectInfo, TaskInfo, TerrainMod, WorldObject } from "@world3d/shared";
 
 export interface ChatLogRow {
   id: number;
@@ -83,6 +83,22 @@ export class Db {
         objectId TEXT PRIMARY KEY,
         sig TEXT, signedAt INTEGER
       );
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER, adminId TEXT, adminName TEXT,
+        action TEXT, targetType TEXT, targetId TEXT, detail TEXT
+      );
+      CREATE TABLE IF NOT EXISTS event_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER, kind TEXT, actor TEXT, actorId TEXT, text TEXT, meta TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_log(ts);
+      CREATE INDEX IF NOT EXISTS idx_chat_from ON chat_log(fromId);
+      CREATE INDEX IF NOT EXISTS idx_users_created ON users(createdAt);
+      CREATE INDEX IF NOT EXISTS idx_objects_creator ON objects(creatorId);
+      CREATE INDEX IF NOT EXISTS idx_objects_created ON objects(createdAt);
+      CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
+      CREATE INDEX IF NOT EXISTS idx_event_ts ON event_log(ts);
     `);
     // office：重启后未完成的项目标记 paused（编排器 attach 时 resume）
     this.db
@@ -311,6 +327,270 @@ export class Db {
       .prepare(`SELECT root,count,createdAt FROM attest_roots ORDER BY id DESC LIMIT 50`)
       .all() as unknown as Array<{ root: string; count: number; createdAt: number }>;
   }
+
+  // ---------- 审计日志 ----------
+
+  insertAudit(adminId: string, adminName: string, action: string, targetType: string, targetId: string, detail: string) {
+    this.db
+      .prepare(
+        `INSERT INTO audit_log (ts,adminId,adminName,action,targetType,targetId,detail) VALUES (?,?,?,?,?,?,?)`
+      )
+      .run(Date.now(), adminId, adminName, action, targetType, targetId, detail.slice(0, 300));
+  }
+
+  listAudit(action: string | null, limit: number): AuditRow[] {
+    const lim = Math.min(Math.max(limit, 1), 200);
+    if (action) {
+      return this.db
+        .prepare(`SELECT * FROM audit_log WHERE action=? ORDER BY id DESC LIMIT ?`)
+        .all(action, lim) as unknown as AuditRow[];
+    }
+    return this.db.prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ?`).all(lim) as unknown as AuditRow[];
+  }
+
+  countAudit(): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS c FROM audit_log`).get() as { c: number }).c;
+  }
+
+  // ---------- 事件流 ----------
+
+  insertEvent(kind: string, actor: string, actorId: string, text: string, meta: string) {
+    this.db
+      .prepare(`INSERT INTO event_log (ts,kind,actor,actorId,text,meta) VALUES (?,?,?,?,?,?)`)
+      .run(Date.now(), kind, actor, actorId, text.slice(0, 200), meta);
+    // 防膨胀：保留最近 20000 条
+    this.db
+      .prepare(`DELETE FROM event_log WHERE id <= (SELECT id FROM event_log ORDER BY id DESC LIMIT 1 OFFSET 20000)`)
+      .run();
+  }
+
+  listEventsSince(since: number, limit: number): EventRow[] {
+    return this.db
+      .prepare(`SELECT id,ts,kind,actor,actorId,text FROM event_log WHERE ts>=? ORDER BY id ASC LIMIT ?`)
+      .all(since, Math.min(limit, 5000)) as unknown as EventRow[];
+  }
+
+  listEvents(limit: number): EventRow[] {
+    return this.db
+      .prepare(`SELECT id,ts,kind,actor,actorId,text FROM event_log ORDER BY id DESC LIMIT ?`)
+      .all(Math.min(Math.max(limit, 1), 200)) as unknown as EventRow[];
+  }
+
+  countEvents(): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS c FROM event_log`).get() as { c: number }).c;
+  }
+
+  // ---------- 后台统计查询 ----------
+
+  /** 按日聚合：注册 / 造物 / 聊天 */
+  dailyCounts(days: number): Array<{ day: string; users: number; objects: number; chats: number }> {
+    const since = startOfDay(Date.now() - (days - 1) * 86400_000);
+    const buckets = new Map<string, { day: string; users: number; objects: number; chats: number }>();
+    for (let i = 0; i < days; i++) {
+      const d = new Date(since + i * 86400_000);
+      buckets.set(dayKey(d), { day: dayKey(d), users: 0, objects: 0, chats: 0 });
+    }
+    const bump = (map: Array<{ ts: number }>, field: "users" | "objects" | "chats") => {
+      for (const row of map) {
+        const k = dayKey(new Date(row.ts));
+        const b = buckets.get(k);
+        if (b) b[field]++;
+      }
+    };
+    bump(
+      this.db.prepare(`SELECT createdAt AS ts FROM users WHERE createdAt>=?`).all(since) as unknown as Array<{ ts: number }>,
+      "users"
+    );
+    bump(
+      this.db.prepare(`SELECT createdAt AS ts FROM objects WHERE createdAt>=?`).all(since) as unknown as Array<{ ts: number }>,
+      "objects"
+    );
+    bump(
+      this.db.prepare(`SELECT ts FROM chat_log WHERE ts>=?`).all(since) as unknown as Array<{ ts: number }>,
+      "chats"
+    );
+    return [...buckets.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
+  }
+
+  countObjectsByKind(): Array<{ label: string; value: number }> {
+    return this.db
+      .prepare(`SELECT kind AS label, COUNT(*) AS value FROM objects GROUP BY kind ORDER BY value DESC`)
+      .all() as unknown as Array<{ label: string; value: number }>;
+  }
+
+  countObjectsByCreator(limit = 6): Array<{ label: string; value: number }> {
+    return this.db
+      .prepare(`SELECT creatorName AS label, COUNT(*) AS value FROM objects GROUP BY creatorName ORDER BY value DESC LIMIT ?`)
+      .all(limit) as unknown as Array<{ label: string; value: number }>;
+  }
+
+  countChatsSince(ts: number): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS c FROM chat_log WHERE ts>=?`).get(ts) as { c: number }).c;
+  }
+
+  /** 多条件用户筛选 */
+  listUsersFiltered(opts: { q: string; role: string; banned: string; limit: number; offset: number }): Array<{
+    id: string;
+    name: string;
+    role: "user" | "admin";
+    createdAt: number;
+    lastLoginAt: number | null;
+    banned: number;
+  }> {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts.q) {
+      where.push(`(name LIKE ? OR id LIKE ?)`);
+      args.push(`%${opts.q}%`, `%${opts.q}%`);
+    }
+    if (opts.role === "admin" || opts.role === "user") {
+      where.push(`role=?`);
+      args.push(opts.role);
+    }
+    if (opts.banned === "1") where.push(`banned=1`);
+    else if (opts.banned === "0") where.push(`banned=0`);
+    const sql = `SELECT id,name,role,createdAt,lastLoginAt,banned FROM users
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY createdAt DESC LIMIT ? OFFSET ?`;
+    args.push(Math.min(Math.max(opts.limit, 1), 200), Math.max(opts.offset, 0));
+    return this.db.prepare(sql).all(...args) as unknown as Array<{
+      id: string;
+      name: string;
+      role: "user" | "admin";
+      createdAt: number;
+      lastLoginAt: number | null;
+      banned: number;
+    }>;
+  }
+
+  countUsersFiltered(opts: { q: string; role: string; banned: string }): number {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts.q) {
+      where.push(`(name LIKE ? OR id LIKE ?)`);
+      args.push(`%${opts.q}%`, `%${opts.q}%`);
+    }
+    if (opts.role === "admin" || opts.role === "user") {
+      where.push(`role=?`);
+      args.push(opts.role);
+    }
+    if (opts.banned === "1") where.push(`banned=1`);
+    else if (opts.banned === "0") where.push(`banned=0`);
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS c FROM users ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`)
+      .get(...args) as { c: number };
+    return row.c;
+  }
+
+  /** 用户详情：其造物 / 聊天 / 登录记录 */
+  userDetail(userId: string) {
+    const ownerKey = `u:${userId}`;
+    return {
+      objects: this.db
+        .prepare(`SELECT id,kind,variant,x,z,creatorName,createdAt FROM objects WHERE creatorId=? ORDER BY createdAt DESC LIMIT 50`)
+        .all(ownerKey) as unknown as Array<{ id: string; kind: string; variant: string; x: number; z: number; creatorName: string; createdAt: number }>,
+      chats: this.db
+        .prepare(`SELECT id,ts,kind,sender AS "from",fromId,text FROM chat_log WHERE fromId=? ORDER BY id DESC LIMIT 30`)
+        .all(userId) as unknown as ChatLogRow[],
+    };
+  }
+
+  /** 聊天筛选 */
+  listChatFiltered(opts: {
+    q: string;
+    kind: string;
+    from: string;
+    fromTs: number;
+    toTs: number;
+    limit: number;
+  }): ChatLogRow[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts.q) {
+      where.push(`text LIKE ?`);
+      args.push(`%${opts.q}%`);
+    }
+    if (opts.kind) {
+      where.push(`kind=?`);
+      args.push(opts.kind);
+    }
+    if (opts.from) {
+      where.push(`sender LIKE ?`);
+      args.push(`%${opts.from}%`);
+    }
+    if (opts.fromTs) {
+      where.push(`ts>=?`);
+      args.push(opts.fromTs);
+    }
+    if (opts.toTs) {
+      where.push(`ts<=?`);
+      args.push(opts.toTs);
+    }
+    args.push(Math.min(Math.max(opts.limit, 1), 200));
+    return this.db
+      .prepare(
+        `SELECT id,ts,kind,sender AS "from",fromId,text FROM chat_log
+         ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT ?`
+      )
+      .all(...args) as unknown as ChatLogRow[];
+  }
+
+  /** 全局搜索：造物 */
+  searchObjects(q: string, limit = 8): Array<{ id: string; kind: string; variant: string; creatorName: string; createdAt: number }> {
+    return this.db
+      .prepare(
+        `SELECT id,kind,variant,creatorName,createdAt FROM objects
+         WHERE kind LIKE ? OR variant LIKE ? OR creatorName LIKE ? ORDER BY createdAt DESC LIMIT ?`
+      )
+      .all(`%${q}%`, `%${q}%`, `%${q}%`, limit) as unknown as Array<{
+      id: string;
+      kind: string;
+      variant: string;
+      creatorName: string;
+      createdAt: number;
+    }>;
+  }
+
+  /** 全局搜索：聊天 */
+  searchChats(q: string, limit = 8): ChatLogRow[] {
+    return this.db
+      .prepare(`SELECT id,ts,kind,sender AS "from",fromId,text FROM chat_log WHERE text LIKE ? ORDER BY id DESC LIMIT ?`)
+      .all(`%${q}%`, limit) as unknown as ChatLogRow[];
+  }
+
+  /** 数据库文件大小（字节） */
+  dbSizeBytes(): number {
+    try {
+      const file = this.db.name;
+      return fs.existsSync(file) ? fs.statSync(file).size : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** 各表行数 */
+  tableCounts(): Record<string, number> {
+    const tables = ["users", "objects", "chat_log", "office_projects", "office_tasks", "office_dialogues", "attest_roots", "object_proofs", "audit_log", "event_log"];
+    const out: Record<string, number> = {};
+    for (const t of tables) {
+      try {
+        out[t] = (this.db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c;
+      } catch {
+        out[t] = 0;
+      }
+    }
+    return out;
+  }
+}
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function startOfDay(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
 }
 
 export interface DbUserRow {

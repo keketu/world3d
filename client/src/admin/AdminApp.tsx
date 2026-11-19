@@ -1,40 +1,66 @@
-// 后台管理系统（/admin）：登录门 + 六页（看板/用户/造物/聊天/项目/存证）
-// 纯 React + fetch，复用奶油和果子设计语言（admin.css）
-import { useCallback, useEffect, useRef, useState } from "react";
+// 后台控制台：顶部栏 + 左侧栏 + 主内容区（经典双栏结构）
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AuthUser, GlobalSearchHit } from "@world3d/shared";
+import { api, TOKEN_KEY } from "./api";
+import { realtime, type AdminEvent } from "./realtime";
+import { ToastHost, useToasts } from "./components";
+import Overview from "./pages/Overview";
+import Users from "./pages/Users";
+import Players from "./pages/Players";
+import Broadcast from "./pages/Broadcast";
+import Chat from "./pages/Chat";
+import Objects from "./pages/Objects";
+import Projects from "./pages/Projects";
+import Attest from "./pages/Attest";
+import AuditPage from "./pages/Audit";
+import System from "./pages/System";
 import "./admin.css";
-import type { AdminStats, AdminUserRow, AuthUser, ProjectInfo, TaskInfo, WorldObject } from "@world3d/shared";
 
-const TOKEN_KEY = "w3d_token";
+export type PageId =
+  | "overview"
+  | "users"
+  | "players"
+  | "broadcast"
+  | "chat"
+  | "objects"
+  | "projects"
+  | "attest"
+  | "audit"
+  | "system";
 
-interface ChatLog {
-  id: number;
-  ts: number;
-  kind: string;
-  from: string;
-  fromId: string;
-  text: string;
+interface NavItem {
+  id: PageId;
+  icon: string;
+  label: string;
+  group: string;
 }
 
-interface AttestRoot {
-  root: string;
-  count: number;
-  createdAt: number;
-}
+const NAV: NavItem[] = [
+  { id: "overview", icon: "📊", label: "实时总览", group: "总览" },
+  { id: "users", icon: "👥", label: "用户管理", group: "运营" },
+  { id: "players", icon: "🎮", label: "在线玩家", group: "运营" },
+  { id: "broadcast", icon: "📢", label: "广播公告", group: "运营" },
+  { id: "chat", icon: "💬", label: "聊天记录", group: "运营" },
+  { id: "objects", icon: "🏝", label: "世界造物", group: "内容" },
+  { id: "projects", icon: "📋", label: "办公室项目", group: "内容" },
+  { id: "attest", icon: "🔐", label: "产权存证", group: "内容" },
+  { id: "audit", icon: "🛡", label: "审计日志", group: "系统" },
+  { id: "system", icon: "⚙️", label: "系统运维", group: "系统" },
+];
 
-async function api<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
-  });
-  return (await res.json()) as T;
-}
-
-const fmt = (ts: number | null | undefined) => (ts ? new Date(ts).toLocaleString("zh-CN", { hour12: false }) : "—");
+const GROUP_ORDER = ["总览", "运营", "内容", "系统"];
 
 export default function AdminApp() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [page, setPage] = useState<PageId>("overview");
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("adm_collapsed") === "1");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [online, setOnline] = useState(0);
+  const [connected, setConnected] = useState(false);
+  const { items: toasts, push } = useToasts();
 
+  // 静默恢复登录
   useEffect(() => {
     const t = localStorage.getItem(TOKEN_KEY);
     if (!t) return;
@@ -46,16 +72,258 @@ export default function AdminApp() {
           setUser(d.user);
         } else if (d?.ok) {
           setToken(t);
-          setUser(d.user); // 登录了但不是 admin，登录门会提示
+          setUser(d.user);
         }
       })
       .catch(() => {});
   }, []);
 
-  if (!token || !user) return <LoginGate onLogin={(t, u) => { setToken(t); setUser(u); }} />;
-  if (user.role !== "admin") return <LoginGate onLogin={(t, u) => { setToken(t); setUser(u); }} notice={`「${user.name}」不是管理员账号`} />;
+  // 实时通道
+  useEffect(() => {
+    if (!token) return;
+    realtime.connect(token);
+    const offStats = realtime.onStats((s) => setOnline(s.online));
+    const t = setInterval(() => setConnected(realtime.isConnected), 2000);
+    setConnected(realtime.isConnected);
+    return () => {
+      offStats();
+      clearInterval(t);
+      realtime.disconnect();
+    };
+  }, [token]);
 
-  return <Dashboard token={token} user={user} onLogout={() => { setToken(null); setUser(null); }} />;
+  useEffect(() => {
+    localStorage.setItem("adm_collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  const logout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    realtime.disconnect();
+    setToken(null);
+    setUser(null);
+  };
+
+  if (!token || !user) return <LoginGate onLogin={(t, u) => { setToken(t); setUser(u); }} />;
+  if (user.role !== "admin")
+    return <LoginGate onLogin={(t, u) => { setToken(t); setUser(u); }} notice={`「${user.name}」不是管理员账号`} />;
+
+  const current = NAV.find((n) => n.id === page)!;
+
+  return (
+    <div className={`admShell ${collapsed ? "collapsed" : ""} ${drawerOpen ? "drawer-open" : ""}`}>
+      <Topbar
+        user={user}
+        online={online}
+        connected={connected}
+        token={token}
+        onToggle={() => setCollapsed((c) => !c)}
+        onMenu={() => setDrawerOpen((d) => !d)}
+        onLogout={logout}
+        onNavigate={setPage}
+      />
+      <Sidebar page={page} onNavigate={setPage} />
+      <main className="admContent">
+        <div className="admPageHead">
+          <div className="admCrumbs">
+            小世界后台 <span>/</span> {current.group} <span>/</span> <b>{current.label}</b>
+          </div>
+          <h1 className="admPageTitle">
+            <span className="admPageIcon">{current.icon}</span> {current.label}
+          </h1>
+        </div>
+        <div className="admPageBody">
+          {page === "overview" && <Overview token={token} onNavigate={setPage} push={push} />}
+          {page === "users" && <Users token={token} push={push} />}
+          {page === "players" && <Players token={token} push={push} />}
+          {page === "broadcast" && <Broadcast token={token} push={push} />}
+          {page === "chat" && <Chat token={token} push={push} />}
+          {page === "objects" && <Objects token={token} push={push} />}
+          {page === "projects" && <Projects token={token} />}
+          {page === "attest" && <Attest token={token} push={push} />}
+          {page === "audit" && <AuditPage token={token} />}
+          {page === "system" && <System token={token} />}
+        </div>
+      </main>
+      <ToastHost items={toasts} />
+    </div>
+  );
+}
+
+/* ---------- 顶部栏 ---------- */
+
+function Topbar({
+  user,
+  online,
+  connected,
+  token,
+  onToggle,
+  onMenu,
+  onLogout,
+  onNavigate,
+}: {
+  user: AuthUser;
+  online: number;
+  connected: boolean;
+  token: string;
+  onToggle: () => void;
+  onMenu: () => void;
+  onLogout: () => void;
+  onNavigate: (p: PageId) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<GlobalSearchHit[]>([]);
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const timer = useRef<number | null>(null);
+
+  const search = useCallback(
+    async (text: string) => {
+      if (!text.trim()) {
+        setHits([]);
+        return;
+      }
+      const d = await api<{ ok: boolean; hits: GlobalSearchHit[] }>(
+        `/api/admin/search?q=${encodeURIComponent(text)}`,
+        token
+      );
+      if (d.ok) setHits(d.hits);
+    },
+    [token]
+  );
+
+  const onInput = (v: string) => {
+    setQ(v);
+    setOpen(true);
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => void search(v), 300);
+  };
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const grouped = useMemo(() => {
+    const g: Record<string, GlobalSearchHit[]> = { user: [], object: [], chat: [] };
+    for (const h of hits) g[h.type]?.push(h);
+    return g;
+  }, [hits]);
+
+  const iconOf = (t: string) => (t === "user" ? "👤" : t === "object" ? "🏝" : "💬");
+  const labelOf = (t: string) => (t === "user" ? "用户" : t === "object" ? "造物" : "聊天");
+
+  return (
+    <header className="admTopbar">
+      <div className="admTopLeft">
+        <button className="admIconBtn only-mobile" onClick={onMenu} title="菜单">
+          ☰
+        </button>
+        <button className="admIconBtn only-desktop" onClick={onToggle} title="折叠侧栏">
+          ⇤
+        </button>
+        <div className="admBrand">
+          🍰 <span>小世界后台</span>
+        </div>
+      </div>
+
+      <div className="admSearchBox" ref={boxRef}>
+        <span className="admSearchIcon">🔍</span>
+        <input
+          className="admSearchInput"
+          placeholder="全局搜索：用户 / 造物 / 聊天…"
+          value={q}
+          onChange={(e) => onInput(e.target.value)}
+          onFocus={() => setOpen(true)}
+        />
+        {open && hits.length > 0 && (
+          <div className="admSearchPanel">
+            {(["user", "object", "chat"] as const).map((t) =>
+              grouped[t].length ? (
+                <div key={t} className="admSearchGroup">
+                  <div className="admSearchGroupTitle">{labelOf(t)}</div>
+                  {grouped[t].map((h) => (
+                    <button
+                      key={`${h.type}-${h.id}`}
+                      className="admSearchHit"
+                      onClick={() => {
+                        setOpen(false);
+                        setQ("");
+                        onNavigate(t === "user" ? "users" : t === "object" ? "objects" : "chat");
+                      }}
+                    >
+                      <span className="admSearchHitIcon">{iconOf(h.type)}</span>
+                      <span className="admSearchHitTitle">{h.title}</span>
+                      <span className="admSearchHitSub">{h.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="admTopRight">
+        <div className={`admLive ${connected ? "on" : "off"}`} title={connected ? "实时通道已连接" : "重连中"}>
+          <i className="admLiveDot" />
+          {connected ? "实时" : "重连中"}
+          <b>{online}</b> 在线
+        </div>
+        <div className="admUserChip">
+          <span className="admUserAvatar">👑</span>
+          <span className="admUserName">{user.name}</span>
+          <div className="admUserMenu">
+            <a href="/" target="_blank" rel="noreferrer">
+              ↩ 回到小世界
+            </a>
+            <button onClick={onLogout}>🚪 退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ---------- 侧边栏 ---------- */
+
+function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: PageId) => void }) {
+  return (
+    <nav className="admSidebar">
+      <div className="admSideScroll">
+        {GROUP_ORDER.map((g) => (
+          <div key={g} className="admSideGroup">
+            <div className="admSideGroupTitle">{g}</div>
+            {NAV.filter((n) => n.group === g).map((n) => (
+              <button
+                key={n.id}
+                className={`admSideItem ${page === n.id ? "on" : ""}`}
+                onClick={() => onNavigate(n.id)}
+                title={n.label}
+              >
+                <span className="admSideIcon">{n.icon}</span>
+                <span className="admSideLabel">{n.label}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="admSideFoot">
+        <div className="admSideStatus">
+          <div className="admSideStatusRow">
+            <span>服务状态</span>
+            <b className="ok">● 正常</b>
+          </div>
+          <div className="admSideStatusRow">
+            <span>存证公示</span>
+            <b>每 10 分钟</b>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
 }
 
 /* ---------- 登录门 ---------- */
@@ -95,7 +363,13 @@ function LoginGate({ onLogin, notice }: { onLogin: (token: string, user: AuthUse
       <div className="admLoginCard">
         <div className="admLoginTitle">🍰 小世界 · 后台管理</div>
         <div className="admLoginSub">仅管理员账号可进入</div>
-        <input className="admInput" placeholder="管理员账号" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <input
+          className="admInput"
+          placeholder="管理员账号"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
         <input
           className="admInput"
           type="password"
@@ -113,395 +387,5 @@ function LoginGate({ onLogin, notice }: { onLogin: (token: string, user: AuthUse
         </a>
       </div>
     </div>
-  );
-}
-
-/* ---------- 主面板 ---------- */
-
-type Tab = "stats" | "users" | "objects" | "chat" | "projects" | "attest";
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "stats", label: "📊 看板" },
-  { id: "users", label: "👥 用户" },
-  { id: "objects", label: "🏝 造物" },
-  { id: "chat", label: "💬 聊天记录" },
-  { id: "projects", label: "📋 项目" },
-  { id: "attest", label: "🔐 存证" },
-];
-
-function Dashboard({ token, user, onLogout }: { token: string; user: AuthUser; onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>("stats");
-  return (
-    <div className="admRoot">
-      <header className="admHead">
-        <div className="admBrand">🍰 小世界后台</div>
-        <div className="admHeadRight">
-          <span className="admWho">👑 {user.name}</span>
-          <button className="admGhostBtn" onClick={() => (window.location.href = "/")}>
-            回小世界
-          </button>
-          <button
-            className="admGhostBtn"
-            onClick={() => {
-              localStorage.removeItem(TOKEN_KEY);
-              onLogout();
-            }}
-          >
-            退出
-          </button>
-        </div>
-      </header>
-      <nav className="admTabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={`admTab ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </nav>
-      <main className="admBody">
-        {tab === "stats" && <StatsTab token={token} />}
-        {tab === "users" && <UsersTab token={token} />}
-        {tab === "objects" && <ObjectsTab token={token} />}
-        {tab === "chat" && <ChatTab token={token} />}
-        {tab === "projects" && <ProjectsTab token={token} />}
-        {tab === "attest" && <AttestTab token={token} />}
-      </main>
-    </div>
-  );
-}
-
-/* ---------- 看板 ---------- */
-
-function StatsTab({ token }: { token: string }) {
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const load = useCallback(() => {
-    api<{ ok: boolean; stats: AdminStats }>("/api/admin/stats", token).then((d) => d.ok && setStats(d.stats));
-  }, [token]);
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 30_000);
-    return () => clearInterval(t);
-  }, [load]);
-  if (!stats) return <div className="admEmpty">加载中…</div>;
-  const cards = [
-    { label: "注册用户", value: stats.users, sub: `今日 +${stats.todayNewUsers}` },
-    { label: "当前在线", value: stats.online, sub: "含游客" },
-    { label: "世界造物", value: stats.objects, sub: "全部已存证签名" },
-    { label: "办公室项目", value: stats.projects, sub: "累计" },
-  ];
-  return (
-    <>
-      <div className="admStatGrid">
-        {cards.map((c) => (
-          <div key={c.label} className="admStatCard">
-            <div className="admStatLabel">{c.label}</div>
-            <div className="admStatValue">{c.value}</div>
-            <div className="admStatSub">{c.sub}</div>
-          </div>
-        ))}
-      </div>
-      {stats.latestRoot && (
-        <div className="admRootCard">
-          <b>🔐 最新公示存证根</b>
-          <code className="admHash">{stats.latestRoot.root}</code>
-          <span className="admStatSub">
-            覆盖 {stats.latestRoot.count} 件造物 · {fmt(stats.latestRoot.createdAt)}
-          </span>
-        </div>
-      )}
-    </>
-  );
-}
-
-/* ---------- 用户 ---------- */
-
-function UsersTab({ token }: { token: string }) {
-  const [q, setQ] = useState("");
-  const [users, setUsers] = useState<AdminUserRow[]>([]);
-  const load = useCallback(() => {
-    api<{ ok: boolean; users: AdminUserRow[] }>(`/api/admin/users?q=${encodeURIComponent(q)}`, token).then(
-      (d) => d.ok && setUsers(d.users)
-    );
-  }, [token, q]);
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 30_000);
-    return () => clearInterval(t);
-  }, [load]);
-
-  const act = async (path: string, body: object) => {
-    const d = await api<{ ok: boolean; reason?: string }>(path, token, { method: "POST", body: JSON.stringify(body) });
-    if (!d.ok) alert(d.reason || "操作失败");
-    load();
-  };
-
-  return (
-    <>
-      <div className="admToolbar">
-        <input className="admInput" placeholder="搜索用户名…" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      <table className="admTable">
-        <thead>
-          <tr>
-            <th>用户</th>
-            <th>角色</th>
-            <th>状态</th>
-            <th>注册时间</th>
-            <th>最近登录</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id} className={u.banned ? "banned" : ""}>
-              <td>
-                <b>{u.name}</b>
-                {u.online && <span className="admOnlineDot" title="在线" />}
-                <div className="admId">{u.id}</div>
-              </td>
-              <td>{u.role === "admin" ? "👑 管理员" : "玩家"}</td>
-              <td>{u.banned ? "🚫 已封禁" : "✅ 正常"}</td>
-              <td>{fmt(u.createdAt)}</td>
-              <td>{fmt(u.lastLoginAt)}</td>
-              <td className="admOps">
-                <button className="admMiniBtn" onClick={() => void act(`/api/admin/user/${u.id}/ban`, { banned: !u.banned })}>
-                  {u.banned ? "解封" : "封禁"}
-                </button>
-                <button
-                  className="admMiniBtn"
-                  onClick={() => void act(`/api/admin/user/${u.id}/role`, { role: u.role === "admin" ? "user" : "admin" })}
-                >
-                  {u.role === "admin" ? "降为玩家" : "设为管理员"}
-                </button>
-              </td>
-            </tr>
-          ))}
-          {users.length === 0 && (
-            <tr>
-              <td colSpan={6} className="admEmpty">
-                没有匹配的用户
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </>
-  );
-}
-
-/* ---------- 造物 ---------- */
-
-function ObjectsTab({ token }: { token: string }) {
-  const [q, setQ] = useState("");
-  const [list, setList] = useState<WorldObject[]>([]);
-  const load = useCallback(() => {
-    api<{ ok: boolean; objects: WorldObject[] }>(`/api/admin/objects?q=${encodeURIComponent(q)}`, token).then(
-      (d) => d.ok && setList(d.objects)
-    );
-  }, [token, q]);
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 30_000);
-    return () => clearInterval(t);
-  }, [load]);
-
-  const del = async (id: string) => {
-    if (!confirm("确定删除这件造物？（会广播下线，存证同步移除）")) return;
-    const d = await api<{ ok: boolean; reason?: string }>(`/api/admin/object/${id}`, token, { method: "DELETE" });
-    if (!d.ok) alert(d.reason || "删除失败");
-    load();
-  };
-
-  return (
-    <>
-      <div className="admToolbar">
-        <input className="admInput" placeholder="按创建者 / 类型搜索…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <span className="admCount">共 {list.length} 件</span>
-      </div>
-      <table className="admTable">
-        <thead>
-          <tr>
-            <th>类型</th>
-            <th>创建者</th>
-            <th>坐标</th>
-            <th>创建时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((o) => (
-            <tr key={o.id}>
-              <td>
-                <b>{o.kind}</b> {o.variant && <span className="admVariant">{o.variant}</span>}
-              </td>
-              <td>{o.creatorName}</td>
-              <td>
-                ({Math.round(o.x)}, {Math.round(o.z)})
-              </td>
-              <td>{fmt(o.createdAt)}</td>
-              <td>
-                <button className="admMiniBtn danger" onClick={() => void del(o.id)}>
-                  删除
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
-  );
-}
-
-/* ---------- 聊天记录 ---------- */
-
-function ChatTab({ token }: { token: string }) {
-  const [logs, setLogs] = useState<ChatLog[]>([]);
-  const oldestId = useRef<number | null>(null);
-  const load = useCallback(
-    async (before?: number) => {
-      const d = await api<{ ok: boolean; logs: ChatLog[] }>(
-        `/api/admin/chatlog?limit=50${before ? `&before=${before}` : ""}`,
-        token
-      );
-      if (!d.ok) return;
-      if (before) setLogs((prev) => [...d.logs, ...prev]);
-      else setLogs(d.logs);
-      oldestId.current = d.logs[0]?.id ?? null;
-    },
-    [token]
-  );
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  return (
-    <>
-      <div className="admToolbar">
-        <span className="admCount">最新 50 条（玩家发言 / 系统事件）</span>
-        {oldestId.current !== null && (
-          <button className="admMiniBtn" onClick={() => void load(oldestId.current!)}>
-            加载更早
-          </button>
-        )}
-      </div>
-      <div className="admChatList">
-        {logs.map((l) => (
-          <div key={l.id} className={`admChatRow kind-${l.kind}`}>
-            <span className="admChatTs">{fmt(l.ts)}</span>
-            <span className={`admChatFrom kind-${l.kind}`}>{l.kind === "system" ? "系统" : l.from}</span>
-            <span className="admChatText">{l.text}</span>
-          </div>
-        ))}
-        {logs.length === 0 && <div className="admEmpty">还没有聊天记录</div>}
-      </div>
-    </>
-  );
-}
-
-/* ---------- 项目 ---------- */
-
-function ProjectsTab({ token }: { token: string }) {
-  const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [tasks, setTasks] = useState<TaskInfo[]>([]);
-  useEffect(() => {
-    api<{ ok: boolean; projects: ProjectInfo[]; tasks: TaskInfo[] }>("/api/admin/projects", token).then((d) => {
-      if (d.ok) {
-        setProjects([...d.projects].reverse());
-        setTasks(d.tasks);
-      }
-    });
-  }, [token]);
-
-  return (
-    <div className="admProjList">
-      {projects.map((p) => {
-        const pt = tasks.filter((t) => t.projectId === p.id);
-        const done = pt.filter((t) => t.status === "done").length;
-        return (
-          <div key={p.id} className="admProjCard">
-            <div className="admProjHead">
-              <b>{p.name}</b>
-              <span className={`admProjStatus st-${p.status}`}>{p.status}</span>
-            </div>
-            <div className="admProjBrief">{p.brief}</div>
-            <div className="admTaskList">
-              {pt.map((t) => (
-                <div key={t.id} className="admTask">
-                  <span>{t.status === "done" ? "✅" : t.status === "in_progress" ? "🔨" : "⏳"}</span>
-                  <span className="admTaskTitle">{t.title}</span>
-                  <span className="admTaskWho">→ {t.assigneeId ?? "未派"}</span>
-                </div>
-              ))}
-            </div>
-            <div className="admProjFoot">
-              {fmt(p.createdAt)} · 任务 {done}/{pt.length}
-            </div>
-          </div>
-        );
-      })}
-      {projects.length === 0 && <div className="admEmpty">还没有项目</div>}
-    </div>
-  );
-}
-
-/* ---------- 存证 ---------- */
-
-function AttestTab({ token }: { token: string }) {
-  const [roots, setRoots] = useState<AttestRoot[]>([]);
-  const [checkId, setCheckId] = useState("");
-  const [result, setResult] = useState<string>("");
-
-  useEffect(() => {
-    api<{ ok: boolean; roots: AttestRoot[] }>("/api/admin/attest", token).then((d) => d.ok && setRoots(d.roots));
-  }, [token]);
-
-  const check = async () => {
-    setResult("验证中…");
-    const d = await fetch(`/api/attest/object/${encodeURIComponent(checkId.trim())}`);
-    const j = (await d.json()) as {
-      ok: boolean;
-      reason?: string;
-      proof?: { creatorName: string; createdAt: number; sig: string; valid: boolean };
-    };
-    if (!j.ok || !j.proof) return setResult(`❌ ${j.reason}`);
-    setResult(
-      `${j.proof.valid ? "✅ 验章通过" : "❌ 验章失败（数据被篡改！）"} · 归属 ${j.proof.creatorName} · ${fmt(
-        j.proof.createdAt
-      )}\n签名：${j.proof.sig.slice(0, 44)}…`
-    );
-  };
-
-  return (
-    <>
-      <div className="admToolbar">
-        <input className="admInput" placeholder="输入造物 ID 验章…" value={checkId} onChange={(e) => setCheckId(e.target.value)} />
-        <button className="admMiniBtn" onClick={() => void check()}>
-          验证
-        </button>
-      </div>
-      {result && <pre className="admVerifyResult">{result}</pre>}
-      <div className="admToolbar">
-        <span className="admCount">公示存证根（最新 50 条）——篡改任何归属记录，重算根必变</span>
-      </div>
-      <table className="admTable">
-        <thead>
-          <tr>
-            <th>公示时间</th>
-            <th>覆盖造物数</th>
-            <th>Merkle 根</th>
-          </tr>
-        </thead>
-        <tbody>
-          {roots.map((r, i) => (
-            <tr key={i}>
-              <td>{fmt(r.createdAt)}</td>
-              <td>{r.count}</td>
-              <td>
-                <code className="admHash">{r.root}</code>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
   );
 }

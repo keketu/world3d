@@ -1,4 +1,1681 @@
-/* 后台管理样式 —— 复用「奶油和果子」设计语言 */
+/* ============================================================
+   小世界后台控制台 —— 顶部栏 + 侧边栏 + 内容区
+   复用「奶油和果子」调色板（--cream/--sakura/--matcha/--mikan…）
+   ============================================================ */
+
+.admShell {
+  --adm-topbar-h: 56px;
+  --adm-side-w: 216px;
+  --adm-side-w-collapsed: 64px;
+  min-height: 100vh;
+  background: var(--cream-0);
+  color: var(--ink);
+  display: grid;
+  grid-template-columns: var(--adm-side-w) 1fr;
+  grid-template-rows: var(--adm-topbar-h) 1fr;
+  grid-template-areas:
+    "top top"
+    "side main";
+  transition: grid-template-columns 240ms var(--ease);
+}
+
+.admShell.collapsed {
+  grid-template-columns: var(--adm-side-w-collapsed) 1fr;
+}
+
+/* ---------- 顶部栏 ---------- */
+
+.admTopbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  background: linear-gradient(90deg, var(--sakura-wash), rgba(240, 168, 92, 0.14), rgba(127, 185, 138, 0.12));
+  border-bottom: 2px solid var(--biscuit);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.admTopLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.admBrand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.admIconBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 2px solid var(--biscuit);
+  background: var(--cream-1);
+  color: var(--ink-soft);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 160ms var(--bounce), background var(--motion);
+}
+
+.admIconBtn:hover {
+  transform: translateY(-1px);
+  background: #fff;
+}
+
+/* 全局搜索 */
+
+.admSearchBox {
+  position: relative;
+  flex: 1;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.admSearchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.admSearchInput {
+  width: 100%;
+  border: 2px solid var(--biscuit);
+  border-radius: 999px;
+  padding: 8px 16px 8px 34px;
+  font-size: 13px;
+  outline: none;
+  background: var(--cream-1);
+  font-family: inherit;
+  color: var(--ink);
+  transition: border-color var(--motion), box-shadow var(--motion);
+}
+
+.admSearchInput:focus {
+  border-color: var(--sakura);
+  box-shadow: 0 0 0 4px var(--sakura-wash);
+}
+
+.admSearchPanel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: 16px;
+  box-shadow: var(--mochi);
+  padding: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 40;
+  animation: admPop 200ms var(--bounce);
+}
+
+@keyframes admPop {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+}
+
+.admSearchGroupTitle {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  padding: 6px 10px 4px;
+}
+
+.admSearchHit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--ink);
+  transition: background var(--motion);
+}
+
+.admSearchHit:hover {
+  background: var(--sakura-wash);
+}
+
+.admSearchHitIcon {
+  font-size: 13px;
+}
+
+.admSearchHitTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admSearchHitSub {
+  font-size: 11px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+/* 右侧 */
+
+.admTopRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.admLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--matcha-deep);
+  background: rgba(127, 185, 138, 0.14);
+  border: 2px solid rgba(127, 185, 138, 0.4);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+.admLive.off {
+  color: var(--ink-faint);
+  background: var(--cream-2);
+  border-color: var(--biscuit);
+}
+
+.admLive b {
+  font-weight: 800;
+}
+
+.admLiveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--matcha);
+  animation: admPulse 1.6s ease-in-out infinite;
+}
+
+.admLive.off .admLiveDot {
+  background: var(--ink-faint);
+  animation: none;
+}
+
+.admLive.mini {
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
+@keyframes admPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+.admUserChip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.admUserAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sakura-wash);
+  border: 2px solid var(--biscuit);
+  font-size: 14px;
+}
+
+.admUserName {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admUserMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: 14px;
+  box-shadow: var(--mochi);
+  padding: 6px;
+  display: none;
+  z-index: 40;
+}
+
+.admUserChip:hover .admUserMenu {
+  display: block;
+}
+
+.admUserMenu a,
+.admUserMenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.admUserMenu a:hover,
+.admUserMenu button:hover {
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+}
+
+/* ---------- 侧边栏 ---------- */
+
+.admSidebar {
+  grid-area: side;
+  background: var(--cream-1);
+  border-right: 2px solid var(--biscuit);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: var(--adm-topbar-h);
+  height: calc(100vh - var(--adm-topbar-h));
+  overflow: hidden;
+}
+
+.admSideScroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 8px;
+}
+
+.admSideGroup + .admSideGroup {
+  margin-top: 14px;
+}
+
+.admSideGroupTitle {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--ink-faint);
+  padding: 6px 12px 4px;
+  text-transform: uppercase;
+}
+
+.admSideItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  position: relative;
+  transition: background var(--motion), color var(--motion), transform 160ms var(--bounce);
+}
+
+.admSideItem:hover {
+  background: var(--cream-2);
+  color: var(--ink);
+}
+
+.admSideItem.on {
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+  font-weight: 800;
+}
+
+.admSideItem.on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--sakura);
+}
+
+.admSideIcon {
+  font-size: 15px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.admSideLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admSideFoot {
+  padding: 10px;
+  border-top: 2px solid var(--biscuit);
+}
+
+.admSideStatus {
+  background: var(--cream-2);
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.admSideStatusRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.admSideStatusRow b.ok {
+  color: var(--matcha-deep);
+}
+
+/* 折叠态：只留图标 */
+
+.admShell.collapsed .admSideLabel,
+.admShell.collapsed .admSideGroupTitle,
+.admShell.collapsed .admSideFoot {
+  display: none;
+}
+
+.admShell.collapsed .admSideItem {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.admShell.collapsed .admSideGroup + .admSideGroup {
+  margin-top: 8px;
+  border-top: 2px solid var(--biscuit);
+  padding-top: 8px;
+}
+
+/* ---------- 内容区 ---------- */
+
+.admContent {
+  grid-area: main;
+  overflow-y: auto;
+  padding: 20px 26px 60px;
+}
+
+.admPageHead {
+  margin-bottom: 18px;
+}
+
+.admCrumbs {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+
+.admCrumbs span {
+  margin: 0 5px;
+  opacity: 0.6;
+}
+
+.admCrumbs b {
+  color: var(--ink-soft);
+}
+
+.admPageTitle {
+  font-size: 22px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.admPageIcon {
+  font-size: 20px;
+}
+
+.admPageBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- 卡片 / 网格 ---------- */
+
+.admCard {
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-card);
+  box-shadow: var(--mochi-soft);
+  padding: 16px 18px;
+}
+
+.admCard.pad0 {
+  padding: 0;
+  overflow: hidden;
+}
+
+.admCardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.admCardHead b {
+  font-weight: 800;
+}
+
+.admCardHead .admCount {
+  margin-left: auto;
+}
+
+.admGrid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+/* ---------- 指标卡 ---------- */
+
+.admStatGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.admStatCard {
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-card);
+  box-shadow: var(--mochi-soft);
+  padding: 15px 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.admStatCard::after {
+  content: "";
+  position: absolute;
+  right: -20px;
+  top: -20px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--sakura-wash);
+  opacity: 0.5;
+}
+
+.admStatCard.tone-matcha::after {
+  background: rgba(127, 185, 138, 0.16);
+}
+
+.admStatCard.tone-mikan::after {
+  background: rgba(240, 168, 92, 0.16);
+}
+
+.admStatCard.tone-berry::after {
+  background: rgba(185, 138, 209, 0.16);
+}
+
+.admStatLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.admStatIcon {
+  font-size: 13px;
+}
+
+.admStatValue {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.25;
+  position: relative;
+  z-index: 1;
+}
+
+.admStatSub {
+  font-size: 11px;
+  color: var(--ink-faint);
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- 图表 ---------- */
+
+.admChart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.admChartGrid {
+  stroke: rgba(226, 201, 164, 0.4);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.admChartAxis {
+  font-size: 9px;
+  fill: var(--ink-faint);
+}
+
+.admChartLegend {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+}
+
+.admChartLegend i,
+.admLegendItem i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+.admDonutWrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.admDonut {
+  width: 168px;
+  height: 168px;
+  flex-shrink: 0;
+}
+
+.admDonutCenter {
+  font-size: 24px;
+  font-weight: 800;
+  fill: var(--ink);
+}
+
+.admDonutSub {
+  font-size: 10px;
+  fill: var(--ink-faint);
+}
+
+.admLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.admLegendItem {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.admLegendLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admLegendValue {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* ---------- 排行 ---------- */
+
+.admRankList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admRankRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: var(--cream-2);
+}
+
+.admRankNo {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--biscuit);
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+
+.admRankNo.r1 {
+  background: var(--mikan);
+  color: #fff;
+}
+.admRankNo.r2 {
+  background: #d8c7a8;
+}
+.admRankNo.r3 {
+  background: #e0b48a;
+}
+
+.admRankName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admRankVal {
+  font-weight: 800;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+/* ---------- 事件流 ---------- */
+
+.admEventFeed {
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.admEventRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed rgba(226, 201, 164, 0.4);
+}
+
+.admEventTime {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  flex-shrink: 0;
+}
+
+.admEventKind {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+
+.admEventKind.kind-join {
+  background: rgba(127, 185, 138, 0.2);
+  color: var(--matcha-deep);
+}
+.admEventKind.kind-leave {
+  background: rgba(240, 168, 92, 0.2);
+  color: var(--mikan-deep);
+}
+.admEventKind.kind-place {
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+}
+.admEventKind.kind-audit {
+  background: rgba(185, 138, 209, 0.2);
+  color: #8a5bb0;
+}
+.admEventKind.kind-broadcast {
+  background: var(--mikan);
+  color: #fff;
+}
+
+.admEventText {
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 工具栏 / 控件 ---------- */
+
+.admToolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admInput {
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-ctl);
+  padding: 8px 13px;
+  font-size: 13px;
+  outline: none;
+  background: var(--cream-1);
+  font-family: inherit;
+  color: var(--ink);
+  min-width: 150px;
+  margin: 0;
+}
+
+.admInput.wide {
+  min-width: 240px;
+  flex: 1;
+}
+
+.admInput:focus {
+  border-color: var(--sakura);
+  box-shadow: 0 0 0 4px var(--sakura-wash);
+}
+
+.admSelect {
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-ctl);
+  padding: 8px 11px;
+  font-size: 13px;
+  outline: none;
+  background: var(--cream-1);
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.admSelect:focus {
+  border-color: var(--sakura);
+}
+
+.admTextarea {
+  width: 100%;
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-ctl);
+  padding: 11px 13px;
+  font-size: 13px;
+  outline: none;
+  background: var(--cream-1);
+  font-family: inherit;
+  color: var(--ink);
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.admTextarea:focus {
+  border-color: var(--sakura);
+  box-shadow: 0 0 0 4px var(--sakura-wash);
+}
+
+.admTextarea.big {
+  min-height: 110px;
+}
+
+.admInlineForm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.admInlineForm.between {
+  justify-content: space-between;
+}
+
+.admInlineForm .admInput {
+  margin: 0;
+}
+
+.admPrimaryBtn {
+  border: none;
+  border-radius: var(--radius-ctl);
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #f6a4b9, var(--sakura-deep));
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 3px 0 var(--mikan-deep);
+  transition: transform 160ms var(--bounce);
+}
+
+.admPrimaryBtn.inline {
+  padding: 9px 16px;
+  flex-shrink: 0;
+}
+
+.admPrimaryBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admPrimaryBtn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--mikan-deep);
+}
+
+.admMiniBtn {
+  border: 2px solid var(--biscuit);
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 2px 0 rgba(226, 201, 164, 0.5);
+  white-space: nowrap;
+  transition: transform 160ms var(--bounce), border-color var(--motion), color var(--motion);
+}
+
+.admMiniBtn:hover:not(:disabled) {
+  border-color: var(--sakura);
+  color: var(--sakura-deep);
+  transform: translateY(-1px);
+}
+
+.admMiniBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admMiniBtn.danger:hover:not(:disabled) {
+  border-color: #c25b5b;
+  color: #c25b5b;
+}
+
+.admMiniBtn.danger {
+  border-color: rgba(194, 91, 91, 0.4);
+  color: #a85050;
+}
+
+.admMiniBtn.wide {
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px;
+}
+
+.admChipBtn {
+  border: 2px solid var(--biscuit);
+  background: var(--cream-2);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.admChipBtn:hover {
+  border-color: var(--sakura);
+  color: var(--sakura-deep);
+}
+
+.admPresetList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.admCount {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.admCount.pad {
+  padding: 0 4px;
+}
+
+/* ---------- 批量工具条 ---------- */
+
+.admBulkBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--sakura-wash);
+  border: 2px solid rgba(242, 145, 169, 0.4);
+  border-radius: 14px;
+  padding: 8px 14px;
+  animation: admPop 200ms var(--bounce);
+}
+
+.admBulkCount {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--sakura-deep);
+}
+
+.admBulkActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 表格 ---------- */
+
+.admTableWrap {
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-card);
+  box-shadow: var(--mochi-soft);
+  overflow: hidden;
+}
+
+.admTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.admTable th {
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 10px 14px;
+  background: var(--cream-2);
+  white-space: nowrap;
+}
+
+.admTable td {
+  font-size: 13px;
+  padding: 9px 14px;
+  border-top: 1px solid rgba(240, 223, 195, 0.6);
+  vertical-align: middle;
+}
+
+.admTable tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.admTable tr.banned td {
+  opacity: 0.6;
+}
+
+.admTable .w-check {
+  width: 36px;
+}
+
+.admOps {
+  white-space: nowrap;
+}
+
+.admOnlineDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--matcha);
+  margin-left: 6px;
+  animation: admPulse 1.8s ease-in-out infinite;
+}
+
+.admId {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.admVariant {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.link {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.link:hover {
+  color: var(--sakura-deep);
+}
+
+/* 复选框 */
+
+.admCheck {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 2px solid var(--biscuit);
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background var(--motion), border-color var(--motion), transform 140ms var(--bounce);
+}
+
+.admCheck.on {
+  background: var(--sakura);
+  border-color: var(--sakura-deep);
+  transform: scale(1.08);
+}
+
+/* 徽章 */
+
+.admBadge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.admBadge.kind-ok {
+  background: rgba(127, 185, 138, 0.18);
+  color: var(--matcha-deep);
+}
+
+.admBadge.kind-banned {
+  background: rgba(194, 91, 91, 0.16);
+  color: #a85050;
+}
+
+.admBadge.kind-user {
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+}
+
+.admBadge.kind-guest {
+  background: var(--cream-2);
+  color: var(--ink-soft);
+}
+
+.admBadge.kind-audit {
+  background: rgba(185, 138, 209, 0.18);
+  color: #8a5bb0;
+}
+
+/* 分页 */
+
+.admPager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admPagerBtns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admPagerNum {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  padding: 0 4px;
+}
+
+/* ---------- 抽屉 ---------- */
+
+.admDrawerMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(74, 52, 40, 0.3);
+  backdrop-filter: blur(2px);
+  z-index: 60;
+  animation: admFade 200ms ease;
+}
+
+@keyframes admFade {
+  from {
+    opacity: 0;
+  }
+}
+
+.admDrawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 92vw;
+  background: var(--cream-1);
+  border-left: 2px solid var(--biscuit);
+  box-shadow: -12px 0 40px rgba(74, 52, 40, 0.18);
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  animation: admSlideIn 280ms var(--bounce);
+}
+
+@keyframes admSlideIn {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+}
+
+.admDrawerHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 2px solid var(--biscuit);
+  background: linear-gradient(90deg, var(--sakura-wash), rgba(127, 185, 138, 0.1));
+}
+
+.admDrawerTitle {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.admDrawerSub {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  margin-top: 2px;
+}
+
+.admDrawerBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 40px;
+}
+
+.admDetailGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.admDetailGrid > div {
+  background: var(--cream-2);
+  border-radius: 12px;
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admDetailGrid span {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.admDetailGrid b {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admDetailSection {
+  margin-top: 16px;
+}
+
+.admDetailSectionTitle {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+
+.admDetailRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--cream-2);
+  margin-bottom: 5px;
+}
+
+.admDetailRowTitle {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admDetailRowSub {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* ---------- 聊天 ---------- */
+
+.admChatList {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.admChatList.compact {
+  max-height: 420px;
+}
+
+.admChatRow {
+  display: flex;
+  gap: 10px;
+  padding: 6px 16px;
+  font-size: 13px;
+  align-items: baseline;
+  border-bottom: 1px dashed rgba(226, 201, 164, 0.35);
+}
+
+.admChatTs {
+  font-size: 11px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.admChatFrom {
+  font-weight: 800;
+  flex-shrink: 0;
+  color: var(--sakura-deep);
+}
+
+.admChatFrom.kind-system {
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.admChatText {
+  word-break: break-all;
+}
+
+.admChatRow.kind-system .admChatText {
+  color: var(--ink-soft);
+}
+
+/* ---------- 项目 ---------- */
+
+.admProjList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.admProjCard {
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-card);
+  box-shadow: var(--mochi-soft);
+  padding: 14px 16px;
+}
+
+.admProjHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.admProjStatus {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  color: var(--ink-soft);
+}
+
+.admProjStatus.st-done {
+  background: rgba(127, 185, 138, 0.2);
+  color: var(--matcha-deep);
+}
+.admProjStatus.st-in_progress,
+.admProjStatus.st-planning {
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+}
+.admProjStatus.st-meeting,
+.admProjStatus.st-reporting {
+  background: rgba(240, 168, 92, 0.2);
+  color: var(--mikan-deep);
+}
+
+.admProjBrief {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+
+.admProgressBar {
+  position: relative;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  border: 1px solid var(--biscuit);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.admProgressBar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--sakura), var(--mikan));
+  transition: width 400ms var(--ease);
+}
+
+.admProgressBar span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.admTaskList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.admTask {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+  color: var(--ink-soft);
+}
+
+.admTaskTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admTaskWho {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.admProjFoot {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* ---------- 存证 ---------- */
+
+.admHash {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  background: var(--cream-2);
+  border-radius: 8px;
+  padding: 5px 10px;
+  word-break: break-all;
+  color: var(--ink);
+  display: inline-block;
+}
+
+.admHash.block {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+.admVerifyBadge {
+  margin-top: 10px;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admVerifyBadge.ok {
+  background: rgba(127, 185, 138, 0.16);
+  color: var(--matcha-deep);
+  border: 2px solid rgba(127, 185, 138, 0.35);
+}
+
+.admVerifyBadge.bad {
+  background: rgba(194, 91, 91, 0.14);
+  color: #a85050;
+  border: 2px solid rgba(194, 91, 91, 0.35);
+}
+
+.admVerifyResult {
+  background: var(--cream-2);
+  border: 2px solid var(--biscuit);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 10px 0 0;
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+.admBrokenList {
+  margin-top: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* ---------- 系统运维 ---------- */
+
+.admTableCountGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.admTableCount {
+  background: var(--cream-2);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.admTableCountVal {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.admTableCountName {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.admMeterRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: 8px 0 4px;
+}
+
+.admMeterRow b {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.admMeterBar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  border: 1px solid var(--biscuit);
+  overflow: hidden;
+}
+
+.admMeterBar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--mikan), var(--sakura));
+}
+
+.admMeterBar.matcha i {
+  background: linear-gradient(90deg, var(--matcha), #a8d8b9);
+}
+
+.admAutoScroll {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-left: auto;
+  cursor: pointer;
+}
+
+.admTerminal {
+  background: #2b2622;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  padding: 10px 14px;
+  max-height: 340px;
+  overflow-y: auto;
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+.admTermLine {
+  display: flex;
+  gap: 9px;
+  color: #cfc4b6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.admTermTs {
+  color: #7a6f62;
+  flex-shrink: 0;
+}
+
+.admTermLevel {
+  flex-shrink: 0;
+  width: 42px;
+  color: #8fb98f;
+}
+
+.admTermLine.level-warn .admTermLevel {
+  color: #e0b46a;
+}
+
+.admTermLine.level-error .admTermLevel {
+  color: #d97777;
+}
+
+.admTermText {
+  flex: 1;
+}
+
+.admTermEmpty {
+  color: #6b6156;
+}
+
+/* ---------- Toast ---------- */
+
+.admToastHost {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.admToast {
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: 14px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--mochi);
+  animation: admPop 220ms var(--bounce);
+  max-width: 340px;
+}
+
+.admToast.kind-err {
+  border-color: rgba(194, 91, 91, 0.45);
+  color: #a85050;
+}
+
+/* ---------- 空态 ---------- */
+
+.admEmpty {
+  padding: 26px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+/* ---------- 登录门 ---------- */
 
 .admLoginWrap {
   min-height: 100vh;
@@ -32,24 +1709,6 @@
   margin-bottom: 20px;
 }
 
-.admInput {
-  width: 100%;
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-ctl);
-  padding: 11px 14px;
-  font-size: 14px;
-  outline: none;
-  background: #fff;
-  color: var(--ink);
-  font-family: inherit;
-  margin-bottom: 10px;
-}
-
-.admInput:focus {
-  border-color: var(--sakura);
-  box-shadow: 0 0 0 4px var(--sakura-wash);
-}
-
 .admMsg {
   font-size: 12px;
   font-weight: 600;
@@ -57,387 +1716,58 @@
   margin-bottom: 10px;
 }
 
-.admPrimaryBtn {
-  width: 100%;
-  border: none;
-  border-radius: var(--radius-ctl);
-  padding: 13px;
-  font-size: 15px;
-  font-weight: 800;
-  background: linear-gradient(180deg, #f6a4b9, var(--sakura-deep));
-  color: #fff;
-  cursor: pointer;
-  font-family: inherit;
-  box-shadow: 0 4px 0 var(--mikan-deep);
-  margin-bottom: 14px;
-}
-
-.admPrimaryBtn:active {
-  transform: translateY(2px);
-  box-shadow: 0 1px 0 var(--mikan-deep);
-}
-
 .admBackLink {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-/* ---------- 主面板 ---------- */
-
-.admRoot {
-  min-height: 100vh;
-  background: var(--cream-0);
-  color: var(--ink);
-  display: flex;
-  flex-direction: column;
-}
-
-.admHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 22px;
-  background: linear-gradient(90deg, var(--sakura-wash), rgba(240, 168, 92, 0.14), rgba(127, 185, 138, 0.12));
-  border-bottom: 2px solid var(--biscuit);
-}
-
-.admBrand {
-  font-size: 17px;
-  font-weight: 800;
-}
-
-.admHeadRight {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.admWho {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink-soft);
-}
-
-.admGhostBtn {
-  border: 2px solid var(--biscuit);
-  background: var(--cream-1);
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink-soft);
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.admTabs {
-  display: flex;
-  gap: 6px;
-  padding: 12px 22px 0;
-  flex-wrap: wrap;
-}
-
-.admTab {
-  border: 2px solid transparent;
-  background: var(--cream-2);
-  border-radius: 999px;
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink-soft);
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.admTab.on {
-  background: var(--ink);
-  color: var(--cream-1);
-}
-
-.admBody {
-  flex: 1;
-  padding: 18px 22px 40px;
-  max-width: 1100px;
-  width: 100%;
-  margin: 0 auto;
-}
-
-.admToolbar {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-
-.admToolbar .admInput {
-  width: 260px;
-  margin-bottom: 0;
-}
-
-.admCount {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-.admEmpty {
-  padding: 30px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-
-/* 统计卡 */
-
-.admStatGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.admStatCard {
-  background: var(--cream-1);
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-card);
-  box-shadow: var(--mochi-soft);
-  padding: 18px 20px;
-}
-
-.admStatLabel {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink-soft);
-}
-
-.admStatValue {
-  font-size: 34px;
-  font-weight: 800;
-  color: var(--ink);
-  line-height: 1.2;
-}
-
-.admStatSub {
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-.admRootCard {
-  background: var(--cream-1);
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-card);
-  box-shadow: var(--mochi-soft);
-  padding: 14px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.admHash {
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 11px;
-  background: var(--cream-2);
-  border-radius: 8px;
-  padding: 4px 10px;
-  word-break: break-all;
-  color: var(--ink);
-}
-
-/* 表格 */
-
-.admTable {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  background: var(--cream-1);
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  box-shadow: var(--mochi-soft);
-}
-
-.admTable th {
-  text-align: left;
-  font-size: 12px;
-  color: var(--ink-soft);
-  padding: 10px 14px;
-  background: var(--cream-2);
-}
-
-.admTable td {
-  font-size: 13px;
-  padding: 10px 14px;
-  border-top: 1px solid rgba(240, 223, 195, 0.6);
-  vertical-align: middle;
-}
-
-.admTable tr.banned td {
-  opacity: 0.55;
-}
-
-.admOnlineDot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--matcha);
-  margin-left: 6px;
-}
-
-.admId {
-  font-size: 10px;
-  color: var(--ink-faint);
-  font-family: ui-monospace, Consolas, monospace;
-}
-
-.admOps {
-  white-space: nowrap;
-}
-
-.admMiniBtn {
-  border: 2px solid var(--biscuit);
-  background: #fff;
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink);
-  cursor: pointer;
-  font-family: inherit;
-  margin-right: 6px;
-  box-shadow: 0 2px 0 rgba(226, 201, 164, 0.5);
-}
-
-.admMiniBtn:hover {
-  border-color: var(--sakura);
-  color: var(--sakura-deep);
-}
-
-.admMiniBtn.danger:hover {
-  border-color: #c25b5b;
-  color: #c25b5b;
-}
-
-.admVariant {
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-/* 聊天 */
-
-.admChatList {
-  background: var(--cream-1);
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-card);
-  box-shadow: var(--mochi-soft);
-  padding: 8px 0;
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.admChatRow {
-  display: flex;
-  gap: 10px;
-  padding: 6px 16px;
-  font-size: 13px;
-  align-items: baseline;
-}
-
-.admChatTs {
-  font-size: 11px;
-  color: var(--ink-faint);
-  flex-shrink: 0;
-  font-family: ui-monospace, Consolas, monospace;
-}
-
-.admChatFrom {
-  font-weight: 800;
-  flex-shrink: 0;
-  color: var(--sakura-deep);
-}
-
-.admChatFrom.kind-system {
-  color: var(--ink-faint);
-  font-weight: 600;
-}
-
-.admChatText {
-  word-break: break-all;
-}
-
-.admChatRow.kind-system .admChatText {
-  color: var(--ink-soft);
-}
-
-/* 项目 */
-
-.admProjList {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
-}
-
-.admProjCard {
-  background: var(--cream-1);
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-card);
-  box-shadow: var(--mochi-soft);
-  padding: 14px 16px;
-}
-
-.admProjHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.admProjStatus {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 999px;
-}
-
-.admProjBrief {
   font-size: 12px;
   color: var(--ink-soft);
-  margin-bottom: 8px;
+  text-decoration: none;
 }
 
-.admTask {
-  display: flex;
-  gap: 6px;
-  font-size: 12px;
-  padding: 3px 0;
-  color: var(--ink-soft);
+/* ---------- 响应式 ---------- */
+
+.only-mobile {
+  display: none;
 }
 
-.admTaskTitle {
-  flex: 1;
-}
-
-.admTaskWho {
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-.admProjFoot {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-/* 验章结果 */
-
-.admVerifyResult {
-  background: var(--cream-1);
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-card);
-  padding: 12px 16px;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin-bottom: 14px;
-  font-family: inherit;
+@media (max-width: 900px) {
+  .admShell {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "top"
+      "main";
+  }
+  .admShell.collapsed {
+    grid-template-columns: 1fr;
+  }
+  .only-mobile {
+    display: inline-flex;
+  }
+  .only-desktop {
+    display: none;
+  }
+  .admSidebar {
+    position: fixed;
+    top: var(--adm-topbar-h);
+    left: 0;
+    width: 216px;
+    transform: translateX(-100%);
+    transition: transform 260ms var(--bounce);
+    z-index: 50;
+    box-shadow: 8px 0 30px rgba(74, 52, 40, 0.2);
+  }
+  .admShell.drawer-open .admSidebar {
+    transform: translateX(0);
+  }
+  .admContent {
+    padding: 16px 14px 50px;
+  }
+  .admSearchBox {
+    max-width: none;
+  }
+  .admUserName {
+    display: none;
+  }
+  .admGrid2 {
+    grid-template-columns: 1fr;
+  }
 }

@@ -23,6 +23,8 @@ import { Builder } from "./engine/builder.js";
 import { OfficeRoom, OFFICE_ROOM_ID } from "./engine/office/officeRoom.js";
 import { hashPassword, initAuth, issueToken, loginRateOk, verifyPassword, verifyToken, authFromReq, AuthedRequest } from "./auth.js";
 import { attestPublicKeyPem, buildMerkleRoot, initAttest, signObject, verifyObjectProof } from "./attest.js";
+import { Audit } from "./audit.js";
+import { registerAdminApi } from "./adminApi.js";
 
 // 平台（Render/Railway 等）会注入 PORT；本地默认 8788
 const PORT = Number(process.env.PORT ?? 8788);
@@ -52,6 +54,8 @@ const world = new World();
 const presence = new Presence();
 const builder = new Builder(world, db);
 const officeRoom = new OfficeRoom(db);
+const audit = new Audit(db);
+audit.captureConsole(); // 捕获服务器日志 → 后台实时终端
 
 // ---------- 产权存证：签名走 db.insertObject 统一漏斗（手搓/AI/系统建筑全覆盖） ----------
 
@@ -226,7 +230,11 @@ app.get("/api/attest/object/:id", (req, res) => {
 });
 
 // ---------- 后台管理（admin） ----------
+// 全部路由在 adminApi.ts 里注册（这里只做接线）
 
+registerAdminApi(app, { db, world, presence, io, toSocket, adminFromReq, audit });
+
+// 兼容旧路径（保留给旧前端）
 app.get("/api/admin/stats", (req: AuthedRequest, res) => {
   if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
   const stats: AdminStats = {
@@ -239,17 +247,21 @@ app.get("/api/admin/stats", (req: AuthedRequest, res) => {
   };
   res.json({ ok: true, stats });
 });
-
-app.get("/api/admin/users", (req: AuthedRequest, res) => {
+app.get("/api/admin/projects", (req: AuthedRequest, res) => {
   if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
-  const q = String((req.query as { q?: string }).q ?? "");
-  const rows: AdminUserRow[] = db.listUsers(q).map((u) => ({
-    ...u,
-    online: !!presence.findByUserId(u.id),
-  }));
-  res.json({ ok: true, users: rows });
+  const s = db.loadOfficeState();
+  res.json({ ok: true, projects: s.projects, tasks: s.tasks });
 });
-
+app.get("/api/admin/attest", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  res.json({ ok: true, roots: db.listAttestRoots(), publicKey: attestPublicKeyPem() });
+});
+app.get("/api/admin/chatlog", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const before = Number((req.query as { before?: string }).before) || null;
+  const limit = Number((req.query as { limit?: string }).limit) || 50;
+  res.json({ ok: true, logs: db.listChatLogs(before, limit) });
+});
 app.post("/api/admin/user/:id/role", (req: AuthedRequest, res) => {
   const admin = adminFromReq(req);
   if (!admin) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
@@ -258,10 +270,9 @@ app.post("/api/admin/user/:id/role", (req: AuthedRequest, res) => {
   const target = db.findUserById(req.params.id);
   if (!target) return res.json({ ok: false, reason: "用户不存在" });
   db.setUserRole(target.id, role);
-  console.log(`[admin] ${admin.name} set ${target.name} role=${role}`);
+  audit.audit(admin.id, admin.name, "设置角色", "user", target.id, `${target.name} → ${role}`);
   res.json({ ok: true });
 });
-
 app.post("/api/admin/user/:id/ban", (req: AuthedRequest, res) => {
   const admin = adminFromReq(req);
   if (!admin) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
@@ -270,7 +281,7 @@ app.post("/api/admin/user/:id/ban", (req: AuthedRequest, res) => {
   const target = db.findUserById(req.params.id);
   if (!target) return res.json({ ok: false, reason: "用户不存在" });
   db.setUserBanned(target.id, banned);
-  console.log(`[admin] ${admin.name} ${banned ? "banned" : "unbanned"} ${target.name}`);
+  audit.audit(admin.id, admin.name, banned ? "封禁" : "解封", "user", target.id, target.name);
   if (banned) {
     const online = presence.findByUserId(target.id);
     if (online) {
@@ -280,21 +291,6 @@ app.post("/api/admin/user/:id/ban", (req: AuthedRequest, res) => {
   }
   res.json({ ok: true });
 });
-
-app.get("/api/admin/objects", (req: AuthedRequest, res) => {
-  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
-  const { q = "", kind = "" } = req.query as { q?: string; kind?: string };
-  const list = [...world.objects.values()]
-    .filter(
-      (o) =>
-        (!q || o.creatorName.includes(q) || o.creatorId.includes(q) || o.kind.includes(q)) &&
-        (!kind || o.kind === kind)
-    )
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 300);
-  res.json({ ok: true, objects: list });
-});
-
 app.delete("/api/admin/object/:id", (req: AuthedRequest, res) => {
   const admin = adminFromReq(req);
   if (!admin) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
@@ -303,26 +299,8 @@ app.delete("/api/admin/object/:id", (req: AuthedRequest, res) => {
   world.removeObject(o.id);
   db.deleteObject(o.id);
   io.emit("world:remove", { id: o.id, by: admin.id });
-  console.log(`[admin] ${admin.name} deleted object ${o.id} (${o.kind} by ${o.creatorName})`);
+  audit.audit(admin.id, admin.name, "删除造物", "object", o.id, `${o.kind}（${o.creatorName}）`);
   res.json({ ok: true });
-});
-
-app.get("/api/admin/chatlog", (req: AuthedRequest, res) => {
-  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
-  const before = Number((req.query as { before?: string }).before) || null;
-  const limit = Number((req.query as { limit?: string }).limit) || 50;
-  res.json({ ok: true, logs: db.listChatLogs(before, limit) });
-});
-
-app.get("/api/admin/projects", (req: AuthedRequest, res) => {
-  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
-  const s = db.loadOfficeState();
-  res.json({ ok: true, projects: s.projects, tasks: s.tasks });
-});
-
-app.get("/api/admin/attest", (req: AuthedRequest, res) => {
-  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
-  res.json({ ok: true, roots: db.listAttestRoots(), publicKey: attestPublicKeyPem() });
 });
 
 // ---------- Socket ----------
@@ -361,6 +339,7 @@ io.on("connection", (socket: Socket) => {
     const joinText = `👋 ${displayName} 进入了世界`;
     io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: joinText, ts: Date.now() });
     db.insertChatLog("system", "系统", userId ?? player.id, joinText);
+    audit.event("join", displayName, userId ?? player.id, `${displayName} 进入了世界`, { guest: !userId });
     emitSameSpace(player, "player:join", presence.publicInfo(player));
   });
 
@@ -407,6 +386,7 @@ io.on("connection", (socket: Socket) => {
       db.insertObject(row);
       const object = builder["publicObject"](row);
       io.emit("world:place", { object });
+      audit.event("place", p.name, p.userId ?? p.id, `${p.name} 放置了 ${object.kind}`, { objectId: object.id });
       ack?.({ ok: true, object });
     }
   );
@@ -422,6 +402,7 @@ io.on("connection", (socket: Socket) => {
     world.removeObject(o.id);
     db.deleteObject(o.id);
     io.emit("world:remove", { id: o.id, by: p.id });
+    audit.event("remove", p.name, p.userId ?? p.id, `${p.name} 拆除了 ${o.kind}`, { objectId: o.id });
     ack?.({ ok: true });
   });
 
@@ -459,6 +440,7 @@ io.on("connection", (socket: Socket) => {
       const leaveText = `🚪 ${p.name} 离开了世界`;
       io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
       db.insertChatLog("system", "系统", p.userId ?? p.id, leaveText);
+      audit.event("leave", p.name, p.userId ?? p.id, `${p.name} 离开了世界`);
     }
   });
 
@@ -538,6 +520,46 @@ io.on("connection", (socket: Socket) => {
     void officeRoom.bossSpeak(p.id, t.slice(0, 120), aid, { id: p.id, x: p.x, z: p.z });
   });
 });
+
+// ---------- 后台实时通道（socket.io 命名空间 /admin） ----------
+const adminNs = io.of("/admin");
+adminNs.use((sock, next) => {
+  // 握手校验：token 有效 + 实时查库角色仍是 admin
+  const token = (sock.handshake.auth as { token?: string } | undefined)?.token ?? "";
+  const payload = verifyToken(token);
+  if (!payload) return next(new Error("未登录"));
+  const user = db.findUserById(payload.uid);
+  if (!user || user.banned || user.role !== "admin") return next(new Error("需要管理员权限"));
+  (sock.data as { adminId?: string }).adminId = user.id;
+  next();
+});
+adminNs.on("connection", (sock) => {
+  sock.join("admins");
+  console.log(`[admin] console connected: ${sock.id}`);
+  // 推一次快照
+  sock.emit("admin:players", playersSnapshot());
+  sock.emit("admin:stats", { online: presence.players.size, ts: Date.now() });
+});
+/** 在线玩家快照（后台实时列表） */
+function playersSnapshot() {
+  return [...presence.players.values()].map((p) => ({
+    id: p.id,
+    name: p.name,
+    userId: p.userId,
+    isGuest: !p.userId,
+    x: Math.round(p.x),
+    z: Math.round(p.z),
+    roomId: p.roomId,
+    joinedAt: p.lastMove,
+    lastMove: p.lastMove,
+  }));
+}
+audit.setPush((ev, payload) => adminNs.to("admins").emit(ev, payload));
+// 在线人数与玩家列表定时推送
+setInterval(() => {
+  adminNs.to("admins").emit("admin:stats", { online: presence.players.size, ts: Date.now() });
+  adminNs.to("admins").emit("admin:players", playersSnapshot());
+}, 5000).unref();
 
 httpServer.listen(PORT, () => {
   console.log(`[world3d] server listening on http://localhost:${PORT}`);
