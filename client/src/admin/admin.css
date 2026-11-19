@@ -1696,6 +1696,22 @@
   text-align: center;
 }
 
+/* 登录卡内控件撑满并各占一行 */
+.admLoginCard .admInput {
+  width: 100%;
+  margin: 0 0 10px;
+}
+
+.admLoginCard .admPrimaryBtn {
+  display: block;
+  width: 100%;
+  margin: 4px 0 14px;
+}
+
+.admLoginCard .admMsg {
+  margin-bottom: 10px;
+}
+
 .admLoginTitle {
   font-size: 22px;
   font-weight: 800;
@@ -1717,10 +1733,16 @@
 }
 
 .admBackLink {
-  display: inline-block;
+  display: block;
+  text-align: center;
   font-size: 12px;
   color: var(--ink-soft);
   text-decoration: none;
+  transition: color var(--motion);
+}
+
+.admBackLink:hover {
+  color: var(--sakura-deep);
 }
 
 /* ---------- 响应式 ---------- */
