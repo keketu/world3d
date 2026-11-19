@@ -24,6 +24,10 @@ function handleHello(h: HelloPayload) {
   useWorld.setState({ selfId: h.selfId, objects: h.objects });
   clientWorld.configure(h.meta);
   clientWorld.seedObjects(h.objects, h.terrainMods);
+  // 防御：若早到的 player:join 已把「自己」当远程玩家建了分身，这里清掉
+  clientWorld.removeRemote(h.selfId);
+  // hello.players = 你加入前就在场的玩家（他们不会再发 player:join）——补建远程角色
+  for (const p of h.players) clientWorld.addRemote(p);
   clientWorld.onHello();
 }
 
@@ -56,6 +60,8 @@ export function connect(): Socket {
   });
 
   socket.on("player:join", (p: PlayerInfo) => {
+    // io.emit 会把新玩家的 join 广播回自己——过滤，否则渲染出自己的分身
+    if (p.id === useWorld.getState().selfId) return;
     clientWorld.addRemote(p);
   });
 

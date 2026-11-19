@@ -430,6 +430,8 @@ export function startGame(container: HTMLElement): GameHandle {
 
   // ---------- 远端玩家 ----------
   clientWorld.remoteFactory = (p: PlayerInfo) => {
+    // 防御：任何路径都不给自己建远程分身
+    if (p.id === useWorld.getState().selfId) return;
     const av = createAvatar(p.name, p.color);
     av.group.position.set(p.x, p.y, p.z);
     scene.add(av.group);
