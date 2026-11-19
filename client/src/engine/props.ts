@@ -1,6 +1,7 @@
 // 程序化低模道具生成器：树/花丛/小屋/围栏/小路/池塘（office3d 审美）
-// 每件道具合并为单 Mesh（顶点色）= 1 draw call
+// 每件道具合并为单 Mesh（顶点色）= 1 draw call；顶点焊接 → 圆润平滑着色
 import * as THREE from "three";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { WorldObject } from "@world3d/shared";
 
 const matCache = new Map<string, THREE.MeshLambertMaterial>();
@@ -14,20 +15,20 @@ function mat(color: string): THREE.MeshLambertMaterial {
 }
 
 function sphere(r: number, color: string, x = 0, y = 0, z = 0, sy = 1): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 9), mat(color));
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 16), mat(color));
   m.position.set(x, y, z);
   m.scale.y = sy;
   return m;
 }
 
 function cone(r: number, h: number, color: string, x = 0, y = 0, z = 0): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), mat(color));
+  const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 14), mat(color));
   m.position.set(x, y, z);
   return m;
 }
 
 function cyl(r1: number, r2: number, h: number, color: string, x = 0, y = 0, z = 0): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, 8), mat(color));
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, 12), mat(color));
   m.position.set(x, y, z);
   return m;
 }
@@ -71,9 +72,11 @@ function paintAndMerge(group: THREE.Group): THREE.BufferGeometry {
   const merged = new THREE.BufferGeometry();
   merged.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   merged.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  merged.computeVertexNormals();
+  // 顶点焊接：同一部件内重合顶点合并 → computeVertexNormals 得到平滑法线（圆润，无碎面）
+  const welded = mergeVertices(merged, 1e-4);
+  welded.computeVertexNormals();
   group.clear();
-  return merged;
+  return welded;
 }
 
 function buildTree(variant: string, g: THREE.Group) {
@@ -158,7 +161,7 @@ function buildPath(variant: string, params: Record<string, unknown>, g: THREE.Gr
   const dz = Number(params?.dz ?? 1);
   const color = variant === "木板路" ? "#c9a06a" : "#b0a89a";
   for (let i = 0; i < len; i++) {
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.12, 9), mat(color));
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.12, 14), mat(color));
     disc.position.set(dx * i + Math.sin(i * 3.7) * 0.2, 0.02, dz * i + Math.cos(i * 2.9) * 0.2);
     g.add(disc);
   }
@@ -167,8 +170,8 @@ function buildPath(variant: string, params: Record<string, unknown>, g: THREE.Gr
 function buildPond(params: Record<string, unknown>, g: THREE.Group) {
   const r = Math.min(9, Math.max(2, Number(params?.r ?? 4)));
   const water = new THREE.Mesh(
-    new THREE.CircleGeometry(r * 0.92, 26),
-    new THREE.MeshLambertMaterial({ color: "#5da3d6", transparent: true, opacity: 0.8 })
+    new THREE.CircleGeometry(r * 0.92, 32),
+    new THREE.MeshLambertMaterial({ color: "#7ec4e8", transparent: true, opacity: 0.72 })
   );
   water.rotation.x = -Math.PI / 2;
   g.add(water);

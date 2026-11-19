@@ -26,9 +26,22 @@ export function startGame(container: HTMLElement): GameHandle {
 
   // ---------- 三件套 ----------
   const scene = new THREE.Scene();
-  const bgColor = new THREE.Color("#d3ecf7");
-  scene.background = bgColor;
-  const fog = new THREE.Fog("#d3ecf7", q.fogFar * 0.5, q.fogFar);
+  // 渐变天空（屏幕空间垂直渐变：天顶浅蓝 → 地平线暖雾白）
+  const skyCanvas = document.createElement("canvas");
+  skyCanvas.width = 2;
+  skyCanvas.height = 256;
+  const sctx = skyCanvas.getContext("2d")!;
+  const grad = sctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, "#8fc7ec");
+  grad.addColorStop(0.55, "#c8e4ef");
+  grad.addColorStop(1, "#f2f6ec");
+  sctx.fillStyle = grad;
+  sctx.fillRect(0, 0, 2, 256);
+  const skyTex = new THREE.CanvasTexture(skyCanvas);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  scene.background = skyTex;
+  const HORIZON = new THREE.Color("#e2f0ea");
+  const fog = new THREE.Fog(HORIZON, q.fogFar * 0.68, q.fogFar);
   scene.fog = fog;
 
   const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 500);
@@ -37,11 +50,11 @@ export function startGame(container: HTMLElement): GameHandle {
   renderer.setSize(container.clientWidth, container.clientHeight);
   container.appendChild(renderer.domElement);
 
-  scene.add(new THREE.HemisphereLight(0xeaf6ff, 0x9ec27a, 0.95));
-  const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
+  scene.add(new THREE.HemisphereLight(0xe8f5ff, 0xa8c48a, 1.0));
+  const sun = new THREE.DirectionalLight(0xfff0da, 1.1);
   sun.position.set(60, 90, 30);
   scene.add(sun);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.28));
 
   // ---------- 地形与水 ----------
   let terrainMesh: THREE.Mesh | null = null;

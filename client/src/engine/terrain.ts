@@ -1,82 +1,54 @@
-// 低多边形地形：高度图连续网格 + flat shading 顶点色 + 水面
+// 地形：高度图连续网格 + 平滑着色顶点色 + 水面（柔和丘陵，无棱面块感）
 import * as THREE from "three";
 import { WATER_LEVEL } from "@world3d/shared";
 import { clientWorld } from "./world";
 
-const SEGMENTS = 128; // 256 世界 / 128 段 = 2m 一格，低模棱面感
+const SEGMENTS = 180; // 256 世界 / 180 段 ≈ 1.4m 一格，平滑起伏
 
-/** 地形配色：按高度渐变（糖果绿 → 深绿），水边沙色 */
-function terrainColor(h: number, isShore: boolean, out: THREE.Color) {
-  if (h < WATER_LEVEL + 0.4) {
-    out.setRGB(0.93, 0.85, 0.62); // 沙滩
-    return;
-  }
-  if (isShore) {
-    out.setRGB(0.82, 0.9, 0.6); // 浅绿
-    return;
-  }
-  // 两个绿之间的平滑渐变（加一点噪声变化避免死板）
-  const t = Math.min(1, Math.max(0, (h - 10) / 16));
-  out.setRGB(0.62 - t * 0.12, 0.78 - t * 0.1, 0.5 - t * 0.08);
+/** 缓变色彩场：低频正弦叠加，形成有机的草地色斑（区别于逐面抖动） */
+function fieldNoise(x: number, z: number): number {
+  return (
+    Math.sin(x * 0.045 + 1.3) * 0.5 +
+    Math.sin(z * 0.038 + 4.1) * 0.35 +
+    Math.sin((x + z) * 0.021 + 2.2) * 0.15
+  ); // [-1, 1]
 }
 
-/** 构建整块地形网格（非索引 = 每三角独立顶点 = flat shading 低模棱面） */
+/** 地形配色：沙滩 → 浅草地 → 深草地 的柔和渐变 */
+function terrainColor(h: number, x: number, z: number, out: THREE.Color) {
+  const n = fieldNoise(x, z); // 有机色斑
+  if (h < WATER_LEVEL + 0.55) {
+    // 沙滩（略带湿度渐变：越靠近水越深）
+    const wet = Math.min(1, Math.max(0, (WATER_LEVEL + 0.55 - h) / 0.9));
+    out.setRGB(0.91 - wet * 0.06, 0.84 - wet * 0.08, 0.66 - wet * 0.1);
+    return;
+  }
+  // 高度 + 低频噪声共同决定草色深浅（清新但饱和的糖果绿）
+  const t = Math.min(1, Math.max(0, (h - 10) / 16)) * 0.6 + (n * 0.5 + 0.5) * 0.4;
+  out.setRGB(0.58 - t * 0.14, 0.79 - t * 0.12, 0.45 - t * 0.1);
+}
+
+/** 构建整块地形网格（索引几何 = 共享顶点 = 平滑法线，圆润丘陵） */
 export function buildTerrain(size: number): THREE.Mesh {
   const seg = SEGMENTS;
-  const step = size / seg;
-  const positions = new Float32Array(seg * seg * 6 * 3);
-  const colors = new Float32Array(seg * seg * 6 * 3);
+  const geo = new THREE.PlaneGeometry(size, size, seg, seg);
+  geo.rotateX(-Math.PI / 2); // 平面转到 XZ 水平面
+  geo.translate(size / 2, 0, size / 2); // 与世界坐标对齐（0..size）
+
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  const colors = new Float32Array(pos.count * 3);
   const col = new THREE.Color();
-  let p = 0;
-
-  for (let iz = 0; iz < seg; iz++) {
-    for (let ix = 0; ix < seg; ix++) {
-      const x0 = ix * step;
-      const z0 = iz * step;
-      const x1 = x0 + step;
-      const z1 = z0 + step;
-      // 四角高度
-      const h00 = clientWorld.heightAt(x0, z0);
-      const h10 = clientWorld.heightAt(x1, z0);
-      const h01 = clientWorld.heightAt(x0, z1);
-      const h11 = clientWorld.heightAt(x1, z1);
-      // 两个三角（对角线交替方向形成随机棱面感）
-      const flip = (ix + iz) % 2 === 0;
-      const tris = flip
-        ? [
-            [x0, h00, z0, x1, h10, z0, x1, h11, z1],
-            [x0, h00, z0, x1, h11, z1, x0, h01, z1],
-          ]
-        : [
-            [x0, h00, z0, x1, h10, z0, x0, h01, z1],
-            [x1, h10, z0, x1, h11, z1, x0, h01, z1],
-          ];
-      for (const tri of tris) {
-        // 三角形质心高度决定颜色（水边沙色）
-        const midH = (tri[1] + tri[4] + tri[7]) / 3;
-        const shore = midH < WATER_LEVEL + 1.4;
-        terrainColor(midH, shore, col);
-        // 逐面色彩抖动：低模风格化的「碎色」质感
-        const fi = ix * 131 + iz * 37 + (flip ? 7 : 0);
-        const jitter = 0.94 + ((Math.sin(fi * 12.9898) + 1) / 2) * 0.12;
-        // 注意绕序：交换第 2/3 顶点让法线朝上（+y），否则从上看全是背面被剔除
-        for (const vi of [0, 2, 1]) {
-          positions[p] = tri[vi * 3];
-          positions[p + 1] = tri[vi * 3 + 1];
-          positions[p + 2] = tri[vi * 3 + 2];
-          colors[p] = col.r * jitter;
-          colors[p + 1] = col.g * jitter;
-          colors[p + 2] = col.b * jitter;
-          p += 3;
-        }
-      }
-    }
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    pos.setY(i, clientWorld.heightAt(x, z));
+    terrainColor(pos.getY(i), x, z, col);
+    colors[i * 3] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
   }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geo.computeVertexNormals(); // 非索引几何 = flat shading
+  geo.computeVertexNormals(); // 索引几何 = 平滑法线
 
   const mesh = new THREE.Mesh(
     geo,
@@ -88,11 +60,11 @@ export function buildTerrain(size: number): THREE.Mesh {
 
 /** 水面（整图平面，轻微起伏动画在 game 循环里做） */
 export function buildWater(size: number, waterLevel: number): THREE.Mesh {
-  const geo = new THREE.PlaneGeometry(size * 1.02, size * 1.02);
+  const geo = new THREE.PlaneGeometry(size * 1.02, size * 1.02, 1, 1);
   const mat = new THREE.MeshLambertMaterial({
-    color: "#5da3d6",
+    color: "#7ec4e8",
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.72,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.rotation.x = -Math.PI / 2;
