@@ -1,5 +1,14 @@
 /* 个人面板（/me）样式 —— 复用奶油和果子调色板 */
 
+/* 解锁页面原生滚动：全局 index.css 为 3D 世界把 html/body/#root 锁了 overflow:hidden，
+   /me 是自然文档流页面（meRoot min-height），不解锁手机上滚不动（同 admin 的修法） */
+html:has(.meRoot),
+html:has(.meRoot) body,
+html:has(.meRoot) #root {
+  overflow: visible;
+  height: auto;
+}
+
 .meTopBar {
   display: flex;
   align-items: center;
@@ -7,6 +16,9 @@
   padding: 12px 20px;
   background: linear-gradient(90deg, var(--sakura-wash), rgba(240, 168, 92, 0.14), rgba(127, 185, 138, 0.12));
   border-bottom: 2px solid var(--biscuit);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .meTopBrand {
