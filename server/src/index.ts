@@ -25,6 +25,7 @@ import { hashPassword, initAuth, issueToken, loginRateOk, verifyPassword, verify
 import { attestPublicKeyPem, buildMerkleRoot, initAttest, signObject, verifyObjectProof } from "./attest.js";
 import { Audit } from "./audit.js";
 import { registerAdminApi } from "./adminApi.js";
+import { registerMeApi } from "./meApi.js";
 
 // 平台（Render/Railway 等）会注入 PORT；本地默认 8788
 const PORT = Number(process.env.PORT ?? 8788);
@@ -234,6 +235,9 @@ app.get("/api/attest/object/:id", (req, res) => {
 
 registerAdminApi(app, { db, world, presence, io, toSocket, adminFromReq, audit });
 
+// 个人面板（任何登录用户）：只读自己的数据
+registerMeApi(app, { db, world, presence });
+
 // 兼容旧路径（保留给旧前端）
 app.get("/api/admin/stats", (req: AuthedRequest, res) => {
   if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
@@ -308,6 +312,20 @@ io.on("connection", (socket: Socket) => {
   let playerId: string | null = null;
 
   socket.on("join", ({ name, token }: { name: string; token?: string }, ack?: (h: HelloPayload) => void) => {
+    // 幂等：同一连接重复 join（切账号 / 账号→游客）先清掉旧身份，
+    // 否则旧 player 残留在 presence 里 → 自己的旧化身原地不动还显示在线
+    if (playerId) {
+      const old = presence.leave(playerId);
+      playerId = null;
+      if (old) {
+        if (old.roomId) emitToRoom("playerLeave", { id: old.id });
+        emitSameSpace(old, "player:leave", { id: old.id, name: old.name });
+        const leaveText = `🚪 ${old.name} 离开了世界`;
+        io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
+        db.insertChatLog("system", "系统", old.userId ?? old.id, leaveText);
+        audit.event("leave", old.name, old.userId ?? old.id, `${old.name} 离开了世界`);
+      }
+    }
     // 账号玩家：token 验证 → 昵称取账号名，造物归属跨会话稳定
     let userId: string | null = null;
     let displayName = String(name ?? "").slice(0, 12) || `旅人_${socket.id.slice(0, 4)}`;
@@ -341,6 +359,20 @@ io.on("connection", (socket: Socket) => {
     db.insertChatLog("system", "系统", userId ?? player.id, joinText);
     audit.event("join", displayName, userId ?? player.id, `${displayName} 进入了世界`, { guest: !userId });
     emitSameSpace(player, "player:join", presence.publicInfo(player));
+  });
+
+  /** 主动离开世界（切换账号 / 换游客时客户端调用）：立刻清理化身，不等 socket 断开 */
+  socket.on("leave", () => {
+    if (!playerId) return;
+    const p = presence.leave(playerId);
+    playerId = null;
+    if (!p) return;
+    if (p.roomId) emitToRoom("playerLeave", { id: p.id });
+    emitSameSpace(p, "player:leave", { id: p.id, name: p.name });
+    const leaveText = `🚪 ${p.name} 离开了世界`;
+    io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
+    db.insertChatLog("system", "系统", p.userId ?? p.id, leaveText);
+    audit.event("leave", p.name, p.userId ?? p.id, `${p.name} 离开了世界`);
   });
 
   socket.on("move", (mv: MoveInput) => {

@@ -105,6 +105,9 @@ export const useWorld = create<WorldState>((set) => ({
   },
   logout: () => {
     localStorage.removeItem("w3d_token");
+    // 立刻离开世界：服务端清掉自己的化身，避免切账号后旧分身原地残留显示在线
+    // （动态导入避免 store ↔ socket 循环依赖）
+    void import("../net/socket").then((m) => m.sendLeave());
     set({ auth: { user: null, token: null }, joined: false });
   },
   setMeta: (m) => set({ meta: m }),

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useWorld } from "./state/store";
 import { startGame, GameHandle } from "./engine/game";
-import { connect, join, sendChat, sendAiBuild, sendRoomSay } from "./net/socket";
+import { connect, join, sendChat, sendAiBuild, sendRoomSay, sendLeave } from "./net/socket";
 import { ChatMessage } from "@world3d/shared";
 import { Hotbar } from "./ui/Hotbar";
 import { OfficePanel } from "./ui/OfficePanel";
@@ -115,13 +115,18 @@ function TopBar() {
       <div className={`connPill ${connected ? "on" : "off"}`}>{connected ? "● 已连接" : "○ 连接中"}</div>
       <div className="playersPill">👥 {players.length + 1}</div>
       {auth.user && (
-        <button
-          className="toggleBtn on"
-          title="退出登录（回到账号页）"
-          onClick={() => logout()}
-        >
-          {auth.user.role === "admin" ? "👑" : "🎫"} {auth.user.name} · 退出
-        </button>
+        <>
+          <a className="toggleBtn on" href="/me" title="我的小岛：agent 任务 / 聊天记录 / 我的造物">
+            🏝 我的小岛
+          </a>
+          <button
+            className="toggleBtn on"
+            title="退出登录（回到账号页）"
+            onClick={() => logout()}
+          >
+            {auth.user.role === "admin" ? "👑" : "🎫"} {auth.user.name} · 退出
+          </button>
+        </>
       )}
       <button className={`toggleBtn ${showOwnerLabels ? "on" : ""}`} onClick={toggleOwnerLabels} title="显示每个造物的创建者">
         ✍️ 产权标注

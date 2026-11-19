@@ -1,0 +1,583 @@
+/* 个人面板（/me）样式 —— 复用奶油和果子调色板 */
+
+.meTopBar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  background: linear-gradient(90deg, var(--sakura-wash), rgba(240, 168, 92, 0.14), rgba(127, 185, 138, 0.12));
+  border-bottom: 2px solid var(--biscuit);
+}
+
+.meTopBrand {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.meTopTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.meTopRight {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.meTopUser {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.meTopLink {
+  font-size: 12px;
+  color: var(--sakura-deep);
+  text-decoration: none;
+  font-weight: 700;
+  border: 2px solid var(--biscuit);
+  background: var(--cream-1);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+.meTopLink:hover {
+  border-color: var(--sakura);
+}
+
+.meLoginBtn {
+  display: inline-block;
+  border: none;
+  border-radius: var(--radius-ctl);
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #f6a4b9, var(--sakura-deep));
+  color: #fff;
+  text-decoration: none;
+  box-shadow: 0 4px 0 var(--mikan-deep);
+}
+
+.meRoot {
+  min-height: 100vh;
+  background: var(--cream-0);
+  color: var(--ink);
+  padding: 24px 20px 60px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+/* 名片 */
+
+.meHero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(120deg, var(--sakura-wash), rgba(240, 168, 92, 0.12), rgba(127, 185, 138, 0.12));
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-card);
+  box-shadow: var(--mochi-soft);
+  padding: 18px 22px;
+  flex-wrap: wrap;
+}
+
+.meHeroAvatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  background: #fff;
+  border: 2px solid var(--biscuit);
+  box-shadow: 0 4px 10px rgba(122, 86, 61, 0.14);
+  flex-shrink: 0;
+}
+
+.meHeroInfo {
+  flex: 1;
+  min-width: 180px;
+}
+
+.meHeroName {
+  font-size: 21px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meHeroRole {
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+  padding: 2px 9px;
+  border-radius: 999px;
+}
+
+.meHeroSub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 3px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.meHeroOn {
+  color: var(--matcha-deep);
+  font-weight: 700;
+}
+
+.meHeroStats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.meHeroStat {
+  background: #fff;
+  border: 2px solid var(--biscuit);
+  border-radius: 14px;
+  padding: 8px 14px;
+  text-align: center;
+  min-width: 74px;
+}
+
+.meHeroStat b {
+  display: block;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.meHeroStat span {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* 标签页 */
+
+.meTabs {
+  display: flex;
+  gap: 7px;
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+
+.meTab {
+  position: relative;
+  border: 2px solid var(--biscuit);
+  background: var(--cream-1);
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 160ms var(--bounce), background var(--motion), color var(--motion);
+}
+
+.meTab:hover {
+  transform: translateY(-2px);
+}
+
+.meTab.on {
+  background: var(--ink);
+  color: var(--cream-1);
+  border-color: var(--ink);
+}
+
+.meTabDot {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--matcha);
+  animation: mePulse 1.6s ease-in-out infinite;
+}
+
+.meTabDot.warn {
+  background: #c25b5b;
+}
+
+@keyframes mePulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* 卡片 */
+
+.meGrid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.meCard {
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-card);
+  box-shadow: var(--mochi-soft);
+  padding: 16px 18px;
+}
+
+.meCardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.meCardHead b {
+  font-weight: 800;
+}
+
+.meCount {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-left: auto;
+}
+
+.meEmpty {
+  padding: 30px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+/* 任务 */
+
+.meProgress {
+  margin-bottom: 12px;
+}
+
+.meProgressBar {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  border: 1px solid var(--biscuit);
+  overflow: hidden;
+}
+
+.meProgressBar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--sakura), var(--mikan));
+  transition: width 400ms var(--ease);
+}
+
+.meTaskList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.meTask {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--cream-2);
+  border-radius: 12px;
+  padding: 8px 11px;
+}
+
+.meTaskIcon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.meTaskBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.meTaskTitle {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meTaskSub {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.meTaskStatus {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+
+.meTaskStatus.st-done {
+  background: rgba(127, 185, 138, 0.2);
+  color: var(--matcha-deep);
+}
+
+.meTaskStatus.st-in_progress {
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+}
+
+/* agent 汇报 */
+
+.meDialogue {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.meDialogueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  background: var(--cream-2);
+}
+
+.meDialogueAgent {
+  font-weight: 800;
+  color: var(--berry, #b98ad1);
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.meDialogueText {
+  flex: 1;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.meDialogueTime {
+  font-size: 10px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+/* 聊天 */
+
+.meSearch {
+  margin-left: auto;
+  border: 2px solid var(--biscuit);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font-size: 12px;
+  outline: none;
+  background: #fff;
+  font-family: inherit;
+  width: 220px;
+}
+
+.meSearch:focus {
+  border-color: var(--sakura);
+}
+
+.meChatList {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.meChatRow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 4px;
+  border-bottom: 1px dashed rgba(226, 201, 164, 0.4);
+  font-size: 13px;
+}
+
+.meChatTs {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  flex-shrink: 0;
+}
+
+.meChatKind {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--sakura-deep);
+  background: var(--sakura-wash);
+  padding: 1px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.meChatText {
+  flex: 1;
+  word-break: break-all;
+}
+
+/* 造物 */
+
+.meTableWrap {
+  border: 2px solid var(--biscuit);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.meTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.meTable th {
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 9px 13px;
+  background: var(--cream-2);
+}
+
+.meTable td {
+  font-size: 13px;
+  padding: 8px 13px;
+  border-top: 1px solid rgba(240, 223, 195, 0.6);
+}
+
+.meVariant {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.meVerify {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.meVerify.ok {
+  color: var(--matcha-deep);
+}
+
+.meVerify.bad {
+  color: #c25b5b;
+}
+
+.meHash {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  background: var(--cream-2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  word-break: break-all;
+  color: var(--ink);
+  display: block;
+}
+
+/* 时间线 */
+
+.meTimeline {
+  max-height: 560px;
+  overflow-y: auto;
+  position: relative;
+  padding-left: 8px;
+}
+
+.meTlRow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0 7px 16px;
+  border-left: 2px solid var(--biscuit);
+  font-size: 13px;
+  position: relative;
+}
+
+.meTlRow::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 13px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sakura);
+  border: 2px solid var(--cream-1);
+}
+
+.meTlTime {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  flex-shrink: 0;
+}
+
+.meTlKind {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+
+.meTlKind.kind-join {
+  background: rgba(127, 185, 138, 0.2);
+  color: var(--matcha-deep);
+}
+
+.meTlKind.kind-leave {
+  background: rgba(240, 168, 92, 0.2);
+  color: var(--mikan-deep);
+}
+
+.meTlKind.kind-place {
+  background: var(--sakura-wash);
+  color: var(--sakura-deep);
+}
+
+.meTlKind.kind-remove {
+  background: rgba(194, 91, 91, 0.16);
+  color: #a85050;
+}
+
+.meTlText {
+  flex: 1;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+@media (max-width: 720px) {
+  .meRoot {
+    padding: 14px 12px 40px;
+  }
+  .meHeroStats {
+    width: 100%;
+  }
+  .meHeroStat {
+    flex: 1;
+  }
+  .meGrid2 {
+    grid-template-columns: 1fr;
+  }
+  .meSearch {
+    width: 140px;
+  }
+}

@@ -35,108 +35,127 @@ function handleHello(h: HelloPayload) {
 }
 
 export function connect(): Socket {
-  if (socket) return socket;
-  socket = io("/", { transports: ["websocket", "polling"] });
+  if (!socket) {
+    socket = io("/", { transports: ["websocket", "polling"] });
+    registerHandlers(socket);
+  } else if (!socket.connected) {
+    // 断开过（切账号/换游客）→ 重连
+    socket.connect();
+  }
+  return socket;
+}
 
-  socket.on("connect", () => useWorld.getState().setConnected(true));
-  socket.on("disconnect", () => useWorld.getState().setConnected(false));
+/** 主动离开世界：让服务端立刻清掉自己的化身（不残留原地走动的分身） */
+export function sendLeave() {
+  if (!socket) return;
+  socket.emit("leave");
+  socket.disconnect();
+  // 本地也清掉远端分身（下次 join 会重新拉 hello 快照）
+  clientWorld.clearRemotes();
+  useWorld.setState({ selfId: "", players: [] });
+}
 
-  socket.on("hello", handleHello);
+function registerHandlers(s: Socket) {
 
-  socket.on("snapshot", (snap: SnapshotPayload) => {
+  s.on("connect", () => useWorld.getState().setConnected(true));
+  s.on("disconnect", () => useWorld.getState().setConnected(false));
+
+  s.on("hello", handleHello);
+
+  s.on("snapshot", (snap: SnapshotPayload) => {
     useWorld.getState().setPlayers(snap.players);
     clientWorld.onSnapshot(snap.players);
   });
 
-  socket.on("world:place", (p: PlacePayload) => {
+  s.on("world:place", (p: PlacePayload) => {
     clientWorld.applyPlaced(p.object);
     const s = useWorld.getState();
     s.addObject(p.object);
   });
 
-  socket.on("world:remove", (p: RemovePayload) => {
+  s.on("world:remove", (p: RemovePayload) => {
     clientWorld.applyRemoved(p.id);
   });
 
-  socket.on("world:sculpt", (p: SculptPayload) => {
+  s.on("world:sculpt", (p: SculptPayload) => {
     clientWorld.applySculpt(p.mod);
   });
 
-  socket.on("player:join", (p: PlayerInfo) => {
+  s.on("player:join", (p: PlayerInfo) => {
     // io.emit 会把新玩家的 join 广播回自己——过滤，否则渲染出自己的分身
     if (p.id === useWorld.getState().selfId) return;
     clientWorld.addRemote(p);
   });
 
-  socket.on("player:leave", (p: { id: string }) => {
+  s.on("player:leave", (p: { id: string }) => {
     clientWorld.removeRemote(p.id);
   });
 
-  socket.on("chat", (m: ChatMessage) => {
+  s.on("chat", (m: ChatMessage) => {
     useWorld.getState().pushChat(m);
   });
 
   // 管理员封禁 → 踢下线，退回登录页
-  socket.on("account:kicked", ({ reason }: { reason?: string }) => {
+  s.on("account:kicked", ({ reason }: { reason?: string }) => {
     useWorld.getState().logout();
     useWorld.getState().pushToast(reason || "账号已被封禁");
   });
 
-  socket.on("object:added", (o: WorldObject) => {
+  s.on("object:added", (o: WorldObject) => {
     useWorld.getState().addObject(o);
   });
 
-  socket.on("ai:progress", (_p: AiProgressPayload) => {
+  s.on("ai:progress", (_p: AiProgressPayload) => {
     if (!useWorld.getState().aiBusy) useWorld.setState({ aiBusy: true });
   });
 
-  socket.on("ai:done", (_p: AiDonePayload) => {
+  s.on("ai:done", (_p: AiDonePayload) => {
     useWorld.setState({ aiBusy: false });
   });
 
   // ---------- office 房间 ----------
-  socket.on("room:playerJoin", (p) => {
+  s.on("room:playerJoin", (p) => {
     clientWorld.addRemote(p);
   });
 
-  socket.on("room:playerLeave", ({ id }: { id: string }) => {
+  s.on("room:playerLeave", ({ id }: { id: string }) => {
     clientWorld.removeRemote(id);
   });
 
-  socket.on("room:agent", (a) => {
+  s.on("room:agent", (a) => {
     roomHost.updateAgent(a);
   });
 
-  socket.on("room:order", (o) => {
+  s.on("room:order", (o) => {
     charSystem.push(o);
   });
 
-  socket.on("room:dialogue", (l) => {
+  s.on("room:dialogue", (l) => {
     useWorld.getState().pushRoomDialogue(l);
     roomHost.showBubble(l.agentId, l.text, l.holdMs);
   });
 
-  socket.on("room:project", (p) => {
+  s.on("room:project", (p) => {
     useWorld.getState().upsertProject(p);
   });
 
-  socket.on("room:task", (t) => {
+  s.on("room:task", (t) => {
     useWorld.getState().upsertTask(t);
   });
 
-  socket.on("room:progress", ({ taskId, startedAt, endsAt }: { taskId: string; startedAt: number; endsAt: number }) => {
+  s.on("room:progress", ({ taskId, startedAt, endsAt }: { taskId: string; startedAt: number; endsAt: number }) => {
     useWorld.getState().setProgress(taskId, startedAt, endsAt);
   });
 
-  socket.on("room:notify", ({ text }: { text: string }) => {
+  s.on("room:notify", ({ text }: { text: string }) => {
     useWorld.getState().pushToast(text);
   });
 
-  socket.on("room:meeting:started", () => {
+  s.on("room:meeting:started", () => {
     useWorld.getState().pushToast("📢 全员会议开始");
   });
 
-  socket.on("room:meeting:ended", () => {
+  s.on("room:meeting:ended", () => {
     useWorld.getState().pushToast("✅ 会议结束");
   });
 
