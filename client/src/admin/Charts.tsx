@@ -69,6 +69,9 @@ export function AreaChart({
         );
       })}
       {xLabels.map((l, i) => {
+        // 标签抽稀：最多约 7 个（首尾必留），窄屏缩放后仍可读
+        const step = Math.max(1, Math.ceil(xLabels.length / 7));
+        if (i !== 0 && i !== xLabels.length - 1 && i % step !== 0) return null;
         const x = pad.l + (i / Math.max(1, xLabels.length - 1)) * innerW;
         return (
           <text key={i} x={x} y={H - 8} className="admChartAxis" textAnchor={i === 0 ? "start" : i === xLabels.length - 1 ? "end" : "middle"}>

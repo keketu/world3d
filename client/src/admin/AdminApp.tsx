@@ -109,8 +109,19 @@ export default function AdminApp() {
 
   const current = NAV.find((n) => n.id === page)!;
 
+  // 手机抽屉：点击遮罩（e.target 落在 shell 自身/伪元素上）关闭；导航后自动收起
+  const navigate = (p: PageId) => {
+    setPage(p);
+    setDrawerOpen(false);
+  };
+
   return (
-    <div className={`admShell ${collapsed ? "collapsed" : ""} ${drawerOpen ? "drawer-open" : ""}`}>
+    <div
+      className={`admShell ${collapsed ? "collapsed" : ""} ${drawerOpen ? "drawer-open" : ""}`}
+      onClick={(e) => {
+        if (drawerOpen && e.target === e.currentTarget) setDrawerOpen(false);
+      }}
+    >
       <Topbar
         user={user}
         online={online}
@@ -119,9 +130,9 @@ export default function AdminApp() {
         onToggle={() => setCollapsed((c) => !c)}
         onMenu={() => setDrawerOpen((d) => !d)}
         onLogout={logout}
-        onNavigate={setPage}
+        onNavigate={navigate}
       />
-      <Sidebar page={page} onNavigate={setPage} />
+      <Sidebar page={page} onNavigate={navigate} onLogout={logout} />
       <main className="admContent">
         <div className="admPageHead">
           <div className="admCrumbs">
@@ -132,7 +143,7 @@ export default function AdminApp() {
           </h1>
         </div>
         <div className="admPageBody">
-          {page === "overview" && <Overview token={token} onNavigate={setPage} push={push} />}
+          {page === "overview" && <Overview token={token} onNavigate={navigate} push={push} />}
           {page === "users" && <Users token={token} push={push} />}
           {page === "players" && <Players token={token} push={push} />}
           {page === "broadcast" && <Broadcast token={token} push={push} />}
@@ -289,7 +300,15 @@ function Topbar({
 
 /* ---------- 侧边栏 ---------- */
 
-function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: PageId) => void }) {
+function Sidebar({
+  page,
+  onNavigate,
+  onLogout,
+}: {
+  page: PageId;
+  onNavigate: (p: PageId) => void;
+  onLogout: () => void;
+}) {
   return (
     <nav className="admSidebar">
       <div className="admSideScroll">
@@ -311,6 +330,15 @@ function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: PageId) =
         ))}
       </div>
       <div className="admSideFoot">
+        {/* 触屏没有 hover：退出/返回入口固定在抽屉底部（仅手机显示） */}
+        <div className="admSideMobileOps">
+          <a className="admSideMobileBtn" href="/" target="_blank" rel="noreferrer">
+            ↩ 回到小世界
+          </a>
+          <button className="admSideMobileBtn" onClick={onLogout}>
+            🚪 退出登录
+          </button>
+        </div>
         <div className="admSideStatus">
           <div className="admSideStatusRow">
             <span>服务状态</span>
