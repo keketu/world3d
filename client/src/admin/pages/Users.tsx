@@ -192,6 +192,18 @@ export default function Users({ token, push }: { token: string; push: (t: string
                 <span>所属造物</span>
                 <b>{detail.objects.length} 件</b>
               </div>
+              <div>
+                <span>Agent 大脑</span>
+                <b>
+                  {detail.llm ? (
+                    <>
+                      {detail.llm.enabled ? "🧠" : "⏸"} {detail.llm.provider}/{detail.llm.model}
+                    </>
+                  ) : (
+                    "未配置"
+                  )}
+                </b>
+              </div>
             </div>
             <div className="admDetailSection">
               <div className="admDetailSectionTitle">名下造物（{detail.objects.length}）</div>

@@ -42,8 +42,8 @@ export class OfficeRoom {
     };
   }
 
-  assign(brief: string) {
-    return this.orch.assignProject(brief);
+  assign(brief: string, playerId?: string | null) {
+    return this.orch.assignProject(brief, playerId);
   }
 
   /** 老板走到 agent 面前发起对话 */

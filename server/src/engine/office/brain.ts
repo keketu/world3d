@@ -30,4 +30,14 @@ export interface Brain {
 
   /** PM 给老板的最终汇报 */
   report(ctx: { projectName: string; taskSummaries: string[] }): Promise<string>;
+
+  /** PM 接到老板简报时的回应（剧本版同步返回即可） */
+  acceptProject(brief: string): string | Promise<string>;
+
+  /** 玩家面对面跟 agent 说一句话，agent 的回应 */
+  reply(
+    agent: { name: string; role: string; currentTask?: string },
+    text: string,
+    playerName: string
+  ): string | Promise<string>;
 }

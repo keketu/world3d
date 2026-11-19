@@ -1,9 +1,10 @@
-// 个人面板（/me）：任何登录玩家可用 —— agent 任务 / 我的聊天 / 我的造物与产权 / 活动时间线
+// 个人面板（/me）：任何登录玩家可用 —— agent 任务 / 我的聊天 / 我的造物与产权 / 活动时间线 / Agent 大脑
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectInfo, TaskInfo, AuthUser } from "@world3d/shared";
 import { api, fmtTime, fmtAgo } from "../admin/api";
 import { Empty } from "../admin/components";
 import { DonutChart } from "../admin/Charts";
+import LlmTab from "./LlmTab";
 import "./me.css";
 
 interface Overview {
@@ -39,7 +40,7 @@ interface Overview {
   latestRoot: { root: string; count: number; createdAt: number } | null;
 }
 
-type Tab = "tasks" | "chats" | "objects" | "timeline";
+type Tab = "tasks" | "llm" | "chats" | "objects" | "timeline";
 
 export default function MePage({ token, user }: { token: string; user: AuthUser | null }) {
   const [data, setData] = useState<Overview | null>(null);
@@ -109,6 +110,9 @@ export default function MePage({ token, user }: { token: string; user: AuthUser 
           🤖 agent 任务
           {data.agentTasks.running > 0 && <i className="meTabDot" />}
         </button>
+        <button className={`meTab ${tab === "llm" ? "on" : ""}`} onClick={() => setTab("llm")}>
+          🧠 Agent 大脑
+        </button>
         <button className={`meTab ${tab === "chats" ? "on" : ""}`} onClick={() => setTab("chats")}>
           💬 我的聊天记录
         </button>
@@ -174,6 +178,9 @@ export default function MePage({ token, user }: { token: string; user: AuthUser 
           </div>
         </div>
       )}
+
+      {/* ①.5 Agent 大脑（自带 LLM 配置） */}
+      {tab === "llm" && <LlmTab token={token} />}
 
       {/* ② 我的聊天记录 */}
       {tab === "chats" && (

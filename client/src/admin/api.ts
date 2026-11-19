@@ -40,6 +40,9 @@ export async function api<T = ApiRes<unknown>>(
 export const post = <T = ApiRes<unknown>>(path: string, token: string, body: unknown) =>
   api<T>(path, token, { method: "POST", body: JSON.stringify(body) });
 
+export const put = <T = ApiRes<unknown>>(path: string, token: string, body: unknown) =>
+  api<T>(path, token, { method: "PUT", body: JSON.stringify(body) });
+
 export const del = <T = ApiRes<unknown>>(path: string, token: string) =>
   api<T>(path, token, { method: "DELETE" });
 
@@ -104,6 +107,7 @@ export interface UserDetailRes {
     lastLoginAt: number | null;
   };
   online: { x: number; z: number; roomId: string | null } | null;
+  llm: { provider: string; model: string; enabled: boolean; updatedAt: number } | null;
   objects: Array<{ id: string; kind: string; variant: string; x: number; z: number; creatorName: string; createdAt: number }>;
   chats: AdminChatRow[];
 }

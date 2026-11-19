@@ -32,6 +32,8 @@ interface QueuedProject {
   tasks: TaskInfo[];
   /** 服务重启后的恢复模式：跳过简报与规划，直接继续剩余任务 */
   resume?: boolean;
+  /** 下单玩家配置了自带 LLM 时，项目全流程用 TA 的大脑跑 */
+  brain?: Brain;
 }
 
 export class Orchestrator {
@@ -45,6 +47,11 @@ export class Orchestrator {
   private pmBusy = false;
   /** 房间内玩家位置提供者（index.ts 注入 presence 查询） */
   playerProvider: (() => Array<{ id: string; x: number; z: number }>) | null = null;
+  /**
+   * 按玩家取「自带 LLM 大脑」（index.ts 注入）：玩家登录账号且配置/启用了大模型时返回
+   * { brain, playerName, modelLabel }，否则 null（走内置剧本）。游客恒为 null。
+   */
+  brainFor: ((playerId: string | null) => { brain: Brain; playerName: string; modelLabel?: string } | null) | null = null;
   /** 老板与某 agent 的进行中对话（玩家说话优先回给 TA） */
   private partners = new Map<string, { agentId: string; until: number }>();
   private orderSeq = 0;
@@ -222,12 +229,15 @@ export class Orchestrator {
     await this.sayCasual(a.id, line);
   }
 
-  /** 老板回话：面朝说话人，按老板说的内容应答（应答同时进房间聊天流） */
-  async replyTo(agentId: string, text: string, speaker?: { id: string; x: number; z: number }) {
+  /** 老板回话：面朝说话人，按老板说的内容应答（配置了大模型的玩家由 LLM 接话） */
+  async replyTo(agentId: string, text: string, speaker?: { id: string; x: number; z: number }, playerId?: string | null) {
     const a = this.world.get(agentId);
     const player = speaker ?? this.playerProvider?.().find(() => true);
     if (player) await this.face(a, { x: player.x, z: player.z });
-    const line = agentReplyFor({ name: a.name, role: a.role, currentTask: a.currentTask }, text);
+    const hook = playerId != null ? this.brainFor?.(playerId) : null;
+    const line = hook
+      ? await hook.brain.reply({ name: a.name, role: a.role, currentTask: a.currentTask }, text, hook.playerName)
+      : agentReplyFor({ name: a.name, role: a.role, currentTask: a.currentTask }, text);
     this.emitToChat(a.name, line);
     await this.sayCasual(a.id, line);
   }
@@ -256,7 +266,7 @@ export class Orchestrator {
 
   // ---------- 老板下单 ----------
 
-  async assignProject(brief: string) {
+  async assignProject(brief: string, playerId?: string | null) {
     const name = brief.slice(0, 16) || "新项目";
     const project: ProjectInfo = {
       id: randomUUID(),
@@ -267,8 +277,14 @@ export class Orchestrator {
     };
     this.db.insertProject(project);
     this.emit("project:updated", project);
-    this.queue.push({ project, tasks: [] });
-    this.emit("notify", { text: `📋 新项目进入队列：「${name}」` });
+    // 下单玩家配置了自带 LLM → 项目全流程（接单/拆任务/讨论/会议/汇报）用 TA 的大脑
+    const hook = playerId != null ? this.brainFor?.(playerId) : null;
+    this.queue.push({ project, tasks: [], brain: hook?.brain });
+    this.emit("notify", {
+      text: hook
+        ? `📋 新项目进入队列：「${name}」（🧠 由你的${hook.modelLabel ? ` ${hook.modelLabel}` : "大模型"} 驱动）`
+        : `📋 新项目进入队列：「${name}」`,
+    });
     this.pumpQueue();
   }
 
@@ -286,7 +302,7 @@ export class Orchestrator {
     const target = agentId ?? (partner && partner.until > Date.now() ? partner.agentId : null);
     if (target && this.world.agents.has(target) && target !== "boss") {
       this.partners.set(playerId, { agentId: target, until: Date.now() + 45_000 });
-      await this.replyTo(target, text, speaker);
+      await this.replyTo(target, text, speaker, playerId);
       return;
     }
     await this.bossChatter(text);
@@ -325,6 +341,8 @@ export class Orchestrator {
     const { project } = q;
     const pm = this.world.get("pm");
     const boss = this.world.get("boss");
+    // 项目大脑：下单玩家自带 LLM 时整段流程用它，否则内置剧本
+    const brain = q.brain ?? this.brain;
     let tasks: TaskInfo[];
     let planned: PlannedTask[] | null = null;
 
@@ -353,14 +371,14 @@ export class Orchestrator {
         toAgentId: "pm",
         kind: "boss",
       });
-      await this.say("pm", this.pmBrain.acceptProject(project.brief), {
+      await this.say("pm", await brain.acceptProject(project.brief), {
         projectId: project.id,
         toAgentId: "boss",
         kind: "discuss",
       });
 
       // 2. 拆解任务
-      planned = await this.brain.planProject({ brief: project.brief, projectName: project.name });
+      planned = await brain.planProject({ brief: project.brief, projectName: project.name });
       tasks = planned.map((t, i) => ({
         id: randomUUID(),
         projectId: project.id,
@@ -414,7 +432,7 @@ export class Orchestrator {
       await this.face(employee, this.lastPos.get(pm.id) ?? BOSS_SPOT.standPoint);
 
       // 面对面对话
-      const lines = await this.brain.discuss({
+      const lines = await brain.discuss({
         projectName: project.name,
         taskTitle: task.title,
         pmName: pm.name,
@@ -452,7 +470,7 @@ export class Orchestrator {
     project.status = "meeting";
     this.db.updateProject(project);
     this.emit("project:updated", project);
-    await this.runMeeting(pm, project, tasks);
+    await this.runMeeting(pm, project, tasks, brain);
 
     // 6. PM 向老板汇报
     project.status = "reporting";
@@ -461,7 +479,7 @@ export class Orchestrator {
     await this.standUp(pm);
     this.emit("notify", { text: `🚶 ${pm.name} 向老板汇报「${project.name}」` });
     await this.walkTo(pm, BOSS_SPOT.standPoint, BOSS_SPOT.seat);
-    const report = await this.pmBrain.report({
+    const report = await brain.report({
       projectName: project.name,
       taskSummaries: tasks.map((t) => t.title),
     });
@@ -509,7 +527,7 @@ export class Orchestrator {
     });
   }
 
-  private async runMeeting(pm: AgentRuntime, project: ProjectInfo, tasks: TaskInfo[]) {
+  private async runMeeting(pm: AgentRuntime, project: ProjectInfo, tasks: TaskInfo[], brain: Brain = this.brain) {
     this.emit("meeting:started", { projectId: project.id });
     this.emit("notify", { text: `📢 ${pm.name} 召集全员会议` });
     const pmAgent = pm;
@@ -521,7 +539,7 @@ export class Orchestrator {
       { name: "PM", role: "pm", personality: "" },
       ...employees.map((e) => ({ name: e.name, role: e.role, personality: e.personality })),
     ];
-    const lines = await this.pmBrain.meeting({
+    const lines = await brain.meeting({
       projectName: project.name,
       taskSummaries: tasks.map((t) => t.title),
       attendees,

@@ -26,6 +26,8 @@ import { attestPublicKeyPem, buildMerkleRoot, initAttest, signObject, verifyObje
 import { Audit } from "./audit.js";
 import { registerAdminApi } from "./adminApi.js";
 import { registerMeApi } from "./meApi.js";
+import { initLlmCrypto, providerById } from "./llm.js";
+import { LlmBrain } from "./engine/office/llmBrain.js";
 
 // 平台（Render/Railway 等）会注入 PORT；本地默认 8788
 const PORT = Number(process.env.PORT ?? 8788);
@@ -51,6 +53,7 @@ const DATA_DIR = process.env.WORLD3D_DATA ?? path.resolve("data");
 const db = new Db(DATA_DIR);
 initAuth(DATA_DIR);
 initAttest(DATA_DIR);
+initLlmCrypto(DATA_DIR);
 const world = new World();
 const presence = new Presence();
 const builder = new Builder(world, db);
@@ -144,6 +147,25 @@ const emitToRoom = (ev: string, payload: unknown) => {
   for (const p of presence.playersInRoom(OFFICE_ROOM_ID)) toSocket(p.socketId, wired, payload);
 };
 officeRoom.attach(emitToRoom);
+// 玩家自带 LLM：登录账号且在 /me 配置并启用了大模型 → 办公室 agent 用 TA 的模型说话/干活
+officeRoom.orch.brainFor = (playerId) => {
+  const p = playerId ? presence.get(playerId) : null;
+  if (!p?.userId) return null;
+  const cfg = db.getLlmConfig(p.userId);
+  if (!cfg || !cfg.enabled) return null;
+  return {
+    brain: new LlmBrain({
+      baseUrl: cfg.baseUrl,
+      chatPath: providerById(cfg.provider)?.chatPath ?? "/chat/completions",
+      apiKey: cfg.apiKey,
+      model: cfg.model,
+      temperature: cfg.temperature,
+      persona: cfg.persona,
+    }),
+    playerName: p.name,
+    modelLabel: cfg.model,
+  };
+};
 // 编排器环境行为需要房间内玩家位置（agent 主动走近老板搭话）
 officeRoom.orch.playerProvider = () =>
   presence.playersInRoom(OFFICE_ROOM_ID).map((p) => ({ id: p.id, x: p.x, z: p.z }));
@@ -519,7 +541,7 @@ io.on("connection", (socket: Socket) => {
     if (!p || p.roomId !== OFFICE_ROOM_ID) return;
     const text = String(brief ?? "").trim();
     if (!text) return;
-    void officeRoom.assign(text.slice(0, 120));
+    void officeRoom.assign(text.slice(0, 120), p.id);
   });
 
   socket.on("room:talkTo", ({ agentId }: { agentId: string }) => {

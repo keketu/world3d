@@ -72,6 +72,8 @@ export interface AdminOverview {
   chatsToday: number;
   projects: number;
   chatRate: number;
+  /** 启用自带 LLM（Agent 大脑）的用户数 */
+  llmUsers: number;
   trends: TrendPoint[];
   onlineTrend: OnlinePoint[];
   objectKinds: DistItem[];

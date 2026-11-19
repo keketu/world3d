@@ -1,5 +1,6 @@
 import { Brain, PlannedTask } from "./brain.js";
 import {
+  agentReplyFor,
   detectTemplate,
   makeProjectName,
   PM_ACCEPT,
@@ -75,6 +76,14 @@ export class ScriptedBrain implements Brain {
   /** PM 对老板简报的回应（走到老板桌接任务时） */
   acceptProject(brief: string): string {
     return PM_ACCEPT("大家", brief);
+  }
+
+  async reply(
+    agent: { name: string; role: string; currentTask?: string },
+    text: string,
+    _playerName: string
+  ): Promise<string> {
+    return agentReplyFor(agent, text);
   }
 
   shareLine(taskTitle: string): string {

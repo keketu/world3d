@@ -56,6 +56,7 @@ export function registerAdminApi(app: Express, deps: AdminDeps) {
       chatsToday: db.countChatsSince(dayStart.getTime()),
       projects: db.loadOfficeState().projects.length,
       chatRate: db.countChatsSince(Date.now() - 60_000),
+      llmUsers: db.countLlmUsers(),
       trends: db.dailyCounts(14),
       onlineTrend: audit.onlineTrend(120),
       objectKinds: db.countObjectsByKind(),
@@ -141,6 +142,7 @@ export function registerAdminApi(app: Express, deps: AdminDeps) {
       ok: true,
       user: { id: user.id, name: user.name, role: user.role, banned: !!user.banned, createdAt: user.createdAt, lastLoginAt: user.lastLoginAt },
       online: online ? { x: online.x, z: online.z, roomId: online.roomId } : null,
+      llm: db.llmPublicInfo(user.id), // 自带 Agent 大脑（厂商/模型/开关，不含密钥）
       objects: detail.objects,
       chats: detail.chats,
     });

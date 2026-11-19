@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { AdminUserRow, AuditRow, DialogueLine, EventRow, ProjectInfo, TaskInfo, TerrainMod, WorldObject } from "@world3d/shared";
+import { decryptApiKey, maskKey } from "./llm.js";
 
 export interface ChatLogRow {
   id: number;
@@ -91,6 +92,14 @@ export class Db {
       CREATE TABLE IF NOT EXISTS event_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts INTEGER, kind TEXT, actor TEXT, actorId TEXT, text TEXT, meta TEXT
+      );
+      CREATE TABLE IF NOT EXISTS user_llm (
+        userId TEXT PRIMARY KEY,
+        provider TEXT, model TEXT, baseUrl TEXT,
+        apiKeyEnc TEXT,
+        persona TEXT, temperature REAL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updatedAt INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_log(ts);
       CREATE INDEX IF NOT EXISTS idx_chat_from ON chat_log(fromId);
@@ -255,6 +264,103 @@ export class Db {
 
   touchLogin(id: string) {
     this.db.prepare(`UPDATE users SET lastLoginAt=? WHERE id=?`).run(Date.now(), id);
+  }
+
+  // ---------- 用户自带大模型（user_llm，API Key 只存密文） ----------
+
+  /** 服务端内部用：读出解密后的完整配置（不含则 null） */
+  getLlmConfig(userId: string): {
+    provider: string;
+    model: string;
+    baseUrl: string;
+    apiKey: string;
+    persona: string;
+    temperature: number;
+    enabled: boolean;
+  } | null {
+    const row = this.db
+      .prepare(`SELECT provider,model,baseUrl,apiKeyEnc,persona,temperature,enabled FROM user_llm WHERE userId=?`)
+      .get(userId) as
+      | { provider: string; model: string; baseUrl: string; apiKeyEnc: string | null; persona: string | null; temperature: number | null; enabled: number }
+      | undefined;
+    if (!row || !row.apiKeyEnc) return null;
+    const apiKey = decryptApiKey(row.apiKeyEnc);
+    if (!apiKey) return null;
+    return {
+      provider: row.provider,
+      model: row.model,
+      baseUrl: row.baseUrl,
+      apiKey,
+      persona: row.persona ?? "",
+      temperature: row.temperature ?? 0.7,
+      enabled: !!row.enabled,
+    };
+  }
+
+  /** 保存（apiKeyEnc 传 null 表示保留旧密钥）；upsert */
+  saveLlmConfig(
+    userId: string,
+    cfg: { provider: string; model: string; baseUrl: string; apiKeyEnc: string | null; persona: string; temperature: number; enabled: boolean }
+  ) {
+    this.db
+      .prepare(
+        `INSERT INTO user_llm (userId,provider,model,baseUrl,apiKeyEnc,persona,temperature,enabled,updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(userId) DO UPDATE SET
+           provider=excluded.provider, model=excluded.model, baseUrl=excluded.baseUrl,
+           apiKeyEnc=COALESCE(excluded.apiKeyEnc, apiKeyEnc),
+           persona=excluded.persona, temperature=excluded.temperature,
+           enabled=excluded.enabled, updatedAt=excluded.updatedAt`
+      )
+      .run(userId, cfg.provider, cfg.model, cfg.baseUrl, cfg.apiKeyEnc, cfg.persona, cfg.temperature, cfg.enabled ? 1 : 0, Date.now());
+  }
+
+  /** 面板展示用：脱敏状态（不出明文密钥，只给尾号打码） */
+  llmConfigStatus(userId: string): {
+    provider: string;
+    model: string;
+    baseUrl: string;
+    persona: string;
+    temperature: number;
+    enabled: boolean;
+    hasKey: boolean;
+    keyMask: string;
+    updatedAt: number;
+  } | null {
+    const row = this.db
+      .prepare(`SELECT provider,model,baseUrl,apiKeyEnc,persona,temperature,enabled,updatedAt FROM user_llm WHERE userId=?`)
+      .get(userId) as
+      | { provider: string; model: string; baseUrl: string; apiKeyEnc: string | null; persona: string | null; temperature: number | null; enabled: number; updatedAt: number }
+      | undefined;
+    if (!row) return null;
+    const key = row.apiKeyEnc ? decryptApiKey(row.apiKeyEnc) : null;
+    return {
+      provider: row.provider,
+      model: row.model,
+      baseUrl: row.baseUrl,
+      persona: row.persona ?? "",
+      temperature: row.temperature ?? 0.7,
+      enabled: !!row.enabled,
+      hasKey: !!key,
+      keyMask: key ? maskKey(key) : "",
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  clearLlmConfig(userId: string) {
+    this.db.prepare(`DELETE FROM user_llm WHERE userId=?`).run(userId);
+  }
+
+  /** 后台用户详情展示（不含密钥信息） */
+  llmPublicInfo(userId: string): { provider: string; model: string; enabled: boolean; updatedAt: number } | null {
+    const row = this.db
+      .prepare(`SELECT provider,model,enabled,updatedAt FROM user_llm WHERE userId=?`)
+      .get(userId) as { provider: string; model: string; enabled: number; updatedAt: number } | undefined;
+    return row ? { provider: row.provider, model: row.model, enabled: !!row.enabled, updatedAt: row.updatedAt } : null;
+  }
+
+  countLlmUsers(): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS c FROM user_llm WHERE enabled=1 AND apiKeyEnc IS NOT NULL`).get() as { c: number }).c;
   }
 
   countTodayNewUsers(): number {
