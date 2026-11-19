@@ -633,6 +633,261 @@ input:focus-visible {
   box-shadow: var(--mochi-soft);
 }
 
+/* ---------- 设置面板 ---------- */
+.setMask {
+  position: absolute;
+  inset: 0;
+  background: rgba(74, 52, 40, 0.26);
+  backdrop-filter: blur(2px);
+  z-index: 34;
+  animation: setFade 180ms ease;
+}
+
+@keyframes setFade {
+  from {
+    opacity: 0;
+  }
+}
+
+.setPanel {
+  position: absolute;
+  top: 58px;
+  right: 14px;
+  width: 320px;
+  max-height: calc(100% - 90px);
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: var(--radius-card);
+  box-shadow: var(--mochi), 0 20px 44px rgba(74, 52, 40, 0.22);
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: setPop 240ms var(--bounce);
+}
+
+@keyframes setPop {
+  from {
+    transform: translateY(-10px) scale(0.96);
+    opacity: 0;
+  }
+}
+
+.setHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  background: linear-gradient(90deg, var(--sakura-wash), rgba(127, 185, 138, 0.12));
+  border-bottom: 2px solid var(--biscuit);
+}
+
+.setIconBtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  border: 2px solid var(--biscuit);
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.setBody {
+  padding: 14px 16px 18px;
+  overflow-y: auto;
+}
+
+.setGroup + .setGroup {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 2px dashed var(--biscuit);
+}
+
+.setGroupTitle {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.setRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.setRow label {
+  font-size: 13px;
+  color: var(--ink);
+  flex-shrink: 0;
+  min-width: 86px;
+}
+
+.setRow input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  border: 1px solid var(--biscuit);
+  outline: none;
+}
+
+.setRow input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #f6a4b9, var(--sakura-deep));
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(225, 112, 141, 0.4);
+  cursor: pointer;
+}
+
+.setRow input[type="range"]:disabled {
+  opacity: 0.45;
+}
+
+.setVal {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--sakura-deep);
+  min-width: 42px;
+  text-align: right;
+}
+
+.setHint {
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+
+.setPreview {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.setMiniBtn {
+  border: 2px solid var(--biscuit);
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 2px 0 rgba(226, 201, 164, 0.5);
+}
+
+.setMiniBtn:hover {
+  border-color: var(--sakura);
+  color: var(--sakura-deep);
+}
+
+.setSwitch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+.setSwitch input {
+  display: none;
+}
+
+.setSwitchBox {
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  border: 2px solid var(--biscuit);
+  position: relative;
+  transition: background var(--motion);
+  flex-shrink: 0;
+}
+
+.setSwitchBox::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 200ms var(--bounce);
+}
+
+.setSwitch input:checked + .setSwitchBox {
+  background: var(--matcha);
+  border-color: var(--matcha-deep);
+}
+
+.setSwitch input:checked + .setSwitchBox::after {
+  transform: translateX(16px);
+}
+
+.setKeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 8px;
+}
+
+.setKeys kbd {
+  display: inline-block;
+  background: #fff;
+  border: 1px solid var(--biscuit);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  color: var(--ink);
+  margin-right: 3px;
+}
+
+.setSeg {
+  display: flex;
+  gap: 4px;
+  background: var(--cream-2);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.setSegBtn {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.setSegBtn.on {
+  background: var(--ink);
+  color: var(--cream-1);
+}
+
 /* ---------- Toast：小纸条 ---------- */
 .toasts {
   position: absolute;

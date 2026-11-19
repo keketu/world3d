@@ -5,6 +5,7 @@ import { connect, join, sendChat, sendAiBuild, sendRoomSay, sendLeave } from "./
 import { ChatMessage } from "@world3d/shared";
 import { Hotbar } from "./ui/Hotbar";
 import { OfficePanel } from "./ui/OfficePanel";
+import SettingsPanel from "./ui/SettingsPanel";
 import { roomHost } from "./engine/roomHost";
 
 function Toaster() {
@@ -96,7 +97,7 @@ function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boole
   );
 }
 
-function TopBar() {
+function TopBar({ onSettings }: { onSettings: () => void }) {
   const players = useWorld((s) => s.players);
   const connected = useWorld((s) => s.connected);
   const tier = useWorld((s) => s.tier);
@@ -119,6 +120,13 @@ function TopBar() {
           <a className="toggleBtn on" href="/me" title="我的小岛：agent 任务 / 聊天记录 / 我的造物">
             🏝 我的小岛
           </a>
+          <a
+            className="toggleBtn on"
+            href="/admin"
+            title={auth.user.role === "admin" ? "管理后台" : "登录后台（需管理员权限）"}
+          >
+            🛠 后台
+          </a>
           <button
             className="toggleBtn on"
             title="退出登录（回到账号页）"
@@ -128,7 +136,9 @@ function TopBar() {
           </button>
         </>
       )}
-      <button className={`toggleBtn ${showOwnerLabels ? "on" : ""}`} onClick={toggleOwnerLabels} title="显示每个造物的创建者">
+      <button className="toggleBtn" onClick={onSettings} title="设置">
+        ⚙
+      </button>      <button className={`toggleBtn ${showOwnerLabels ? "on" : ""}`} onClick={toggleOwnerLabels} title="显示每个造物的创建者">
         ✍️ 产权标注
       </button>
       <button className="toggleBtn" onClick={toggleView} title="切换第一/第三人称（快捷键 V）">
@@ -155,6 +165,7 @@ export default function App() {
   const nearAgent = useWorld((s) => s.nearAgent);
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GameHandle | null>(null);
 
@@ -191,7 +202,7 @@ export default function App() {
       {!joined && <AuthCard onJoin={handleJoin} />}
       {joined && (
         <div className="ui">
-          <TopBar />
+          <TopBar onSettings={() => setSettingsOpen(true)} />
           {(!isTouch || chatOpen) && <ChatPanel isTouch={isTouch} onClose={() => setChatOpen(false)} />}
           {isTouch && chatOpen && (
             <div className="chatBackdrop" onClick={() => setChatOpen(false)} />
@@ -219,12 +230,13 @@ export default function App() {
             </button>
           )}
           <Toaster />
+          {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
           <div className="hint">
             {inRoom
-              ? "点击地面行走 · 点 📋 派项目（E）· 走到门口离开 · 聊天框说话=老板发言"
+              ? "点击地面行走 · WASD 移动 · 点 📋 派项目（E）· 走到门口离开 · 聊天框说话=老板发言"
               : isTouch
                 ? "点击地面行走 · 选中道具后点地放置 · 长按拆除 · 单指拖动转视角 · 双指缩放"
-                : "点击地面行走 · 选道具（2-7）点地放置 · 右键拆除 · 拖拽转视角 · V 切换视角"}
+                : "点击地面行走 · WASD 移动 · 选道具（2-7）点地放置 · 右键拆除 · 拖拽转视角（⚙可调灵敏度）· V 切换视角"}
           </div>
         </div>
       )}

@@ -22,6 +22,14 @@ export function startGame(container: HTMLElement): GameHandle {
   if (started) throw new Error("game already started");
   started = true;
 
+  /** 键盘移动键位集合 */
+  const KEY_MOVE_CODES = new Set([
+    "KeyW", "KeyA", "KeyS", "KeyD",
+    "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+  ]);
+  /** 当前按下的移动键 */
+  const keysDown = new Set<string>();
+
   const tier = detectTier();
   useWorld.getState().setTier(tier);
   const q = qualityFor(tier);
@@ -129,6 +137,12 @@ export function startGame(container: HTMLElement): GameHandle {
   // ---------- 输入（鼠标/触摸统一 Pointer Events；行走 = 点击地面） ----------
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    // WASD / 方向键：键盘移动
+    if (KEY_MOVE_CODES.has(e.code)) {
+      keysDown.add(e.code);
+      e.preventDefault();
+      return;
+    }
     if (e.code === "KeyV") useWorld.getState().toggleView();
     if (e.code === "KeyE") {
       const st = useWorld.getState();
@@ -141,7 +155,13 @@ export function startGame(container: HTMLElement): GameHandle {
       if (n >= 0 && n < HOTBAR_PROPS.length) useWorld.getState().setHotbar(n);
     }
   };
+  const onKeyUp = (e: KeyboardEvent) => {
+    keysDown.delete(e.code);
+  };
+  const onBlur = () => keysDown.clear();
   window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", onBlur);
 
   interface PtrTrack {
     sx: number; sy: number; lx: number; ly: number;
@@ -233,11 +253,13 @@ export function startGame(container: HTMLElement): GameHandle {
       p.moved += Math.abs(dx) + Math.abs(dy);
       p.lx = e.clientX;
       p.ly = e.clientY;
-      camYaw -= dx * 0.0052;
+      // 鼠标左右转视角：灵敏度可调（1 = 默认）
+      const sens = useWorld.getState().settings.mouseSensitivity;
+      camYaw -= dx * 0.0052 * sens;
       // 俯仰钳制：第一人称可略仰视；房间内保持俯视区间（不穿墙）
       const [pMin, pMax] =
         viewMode === "first" ? [-0.55, 1.35] : roomHost.active ? [0.55, 1.45] : [0.15, 1.45];
-      camPitch = Math.max(pMin, Math.min(pMax, camPitch + dy * 0.0042));
+      camPitch = Math.max(pMin, Math.min(pMax, camPitch + dy * 0.0042 * sens));
     }
   };
 
@@ -487,7 +509,7 @@ export function startGame(container: HTMLElement): GameHandle {
     // 1. 本地移动（点击行走：户外直线+滑动避障，房间 A* 路径）
     if (st.joined) {
       let moving = false;
-      const SPEED = 4.6;
+            const SPEED = 4.6;
       if (roomHost.active && roomPath) {
         let remain = SPEED * dt;
         while (remain > 0 && roomWp < roomPath.length) {
@@ -533,6 +555,68 @@ export function startGame(container: HTMLElement): GameHandle {
           self.rotY = Math.atan2(dx, dz);
           const ty = clientWorld.surfaceY(self.x, self.z);
           self.y += (ty - self.y) * Math.min(1, dt * 12);
+        }
+      }
+
+      // ---------- 键盘移动（WASD / 方向键） ----------
+      // 优先级高于点击行走：按住键时接管方向，松键后停止
+      const st = useWorld.getState();
+      if (st.settings.keyboardMove && keysDown.size > 0) {
+        // 输入方向（屏幕空间）：W=前 S=后 A=左 D=右
+        let ix = 0;
+        let iz = 0;
+        if (keysDown.has("KeyW") || keysDown.has("ArrowUp")) iz -= 1;
+        if (keysDown.has("KeyS") || keysDown.has("ArrowDown")) iz += 1;
+        if (keysDown.has("KeyA") || keysDown.has("ArrowLeft")) ix -= 1;
+        if (keysDown.has("KeyD") || keysDown.has("ArrowRight")) ix += 1;
+        if (ix !== 0 || iz !== 0) {
+          moveTarget = null; // 键盘接管，取消点击目标
+          roomPath = null; // 房内也放弃 A* 路径
+          // 相机朝向：前 = 相机正前方（camYaw 决定）
+          const len = Math.hypot(ix, iz);
+          const fx = ix / len;
+          const fz = iz / len;
+          // 相机前方向量（three.js 相机 yaw 与世界 -Z/+Z 的关系用 camYaw 推出）
+          const sin = Math.sin(camYaw);
+          const cos = Math.cos(camYaw);
+          const wx = fx * cos + fz * sin;
+          const wz = -fx * sin + fz * cos;
+          const step = SPEED * st.settings.keyboardSpeed * dt;
+          const nx = self.x + wx * step;
+          const nz = self.z + wz * step;
+          // 碰撞：户外用地形碰撞，房内用房间障碍
+          const blocked = roomHost.active
+            ? roomHost.movementBlocked(nx, nz)
+            : clientWorld.blockedAt(nx, nz);
+          const blockedHere = roomHost.active
+            ? roomHost.movementBlocked(self.x, self.z)
+            : clientWorld.blockedAt(self.x, self.z);
+          if (!blocked) {
+            self.x = nx;
+            self.z = nz;
+          } else if (blockedHere) {
+            // 脚下已卡住 → 允许朝任一方向挪出（脱困）
+            self.x += wx * step * 0.6;
+            self.z += wz * step * 0.6;
+          } else {
+            // 沿墙滑动：只走未被挡住的轴
+            const okX = roomHost.active
+              ? !roomHost.movementBlocked(nx, self.z)
+              : !clientWorld.blockedAt(nx, self.z);
+            const okZ = roomHost.active
+              ? !roomHost.movementBlocked(self.x, nz)
+              : !clientWorld.blockedAt(self.x, nz);
+            if (okX) self.x = nx;
+            if (okZ) self.z = nz;
+          }
+          moving = true;
+          if (Math.abs(wx) > 0.001 || Math.abs(wz) > 0.001) self.rotY = Math.atan2(wx, wz);
+          if (roomHost.active) {
+            self.y = 0;
+          } else {
+            const ty = clientWorld.surfaceY(self.x, self.z);
+            self.y += (ty - self.y) * Math.min(1, dt * 12);
+          }
         }
       }
       self.anim = moving ? "walk" : "idle";

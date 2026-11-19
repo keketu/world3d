@@ -4,6 +4,40 @@ import { AgentInfo, AuthUser, ChatMessage, DialogueLine, PlayerInfo, ProjectInfo
 export type QualityTier = "low" | "mid" | "high";
 export type ViewMode = "third" | "first";
 
+/** 玩家设置（持久化到 localStorage） */
+export interface Settings {
+  /** 鼠标转视角灵敏度（1 = 默认） */
+  mouseSensitivity: number;
+  /** 键盘 WASD 移动开关 */
+  keyboardMove: boolean;
+  /** 键盘移动速度倍率 */
+  keyboardSpeed: number;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  mouseSensitivity: 1,
+  keyboardMove: true,
+  keyboardSpeed: 1,
+};
+
+export function loadSettings(): Settings {
+  try {
+    const raw = localStorage.getItem("w3d_settings");
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+export function saveSettings(s: Settings) {
+  try {
+    localStorage.setItem("w3d_settings", JSON.stringify(s));
+  } catch {
+    /* 忽略存储失败 */
+  }
+}
+
 export interface Toast {
   id: number;
   text: string;
@@ -17,6 +51,8 @@ interface WorldState {
   selfName: string;
   /** 登录账号（游客为 null） */
   auth: { user: AuthUser | null; token: string | null };
+  /** 玩家设置 */
+  settings: Settings;
   players: PlayerInfo[];
   chat: ChatMessage[];
   objects: WorldObject[];
@@ -44,6 +80,7 @@ interface WorldState {
   setJoined(name: string): void;
   setAuth(user: AuthUser | null, token: string | null): void;
   logout(): void;
+  setSettings(patch: Partial<Settings>): void;
   setMeta(m: WorldMeta): void;
   setPlayers(v: PlayerInfo[]): void;
   pushChat(m: ChatMessage): void;
@@ -74,6 +111,7 @@ export const useWorld = create<WorldState>((set) => ({
   selfId: "",
   selfName: "",
   auth: { user: null, token: null },
+  settings: loadSettings(),
   players: [],
   chat: [],
   objects: [],
@@ -110,6 +148,12 @@ export const useWorld = create<WorldState>((set) => ({
     void import("../net/socket").then((m) => m.sendLeave());
     set({ auth: { user: null, token: null }, joined: false });
   },
+  setSettings: (patch) =>
+    set((s) => {
+      const next = { ...s.settings, ...patch };
+      saveSettings(next);
+      return { settings: next };
+    }),
   setMeta: (m) => set({ meta: m }),
   setPlayers: (v) => set({ players: v }),
   pushChat: (m) => set((s) => ({ chat: [...s.chat.slice(-120), m] })),
