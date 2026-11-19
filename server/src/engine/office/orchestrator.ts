@@ -52,6 +52,11 @@ export class Orchestrator {
    * { brain, playerName, modelLabel }，否则 null（走内置剧本）。游客恒为 null。
    */
   brainFor: ((playerId: string | null) => { brain: Brain; playerName: string; modelLabel?: string } | null) | null = null;
+  /**
+   * 按账号 id 取「自带 LLM 大脑」：个人 agent（我的员工）被别人搭话时，
+   * 用 TA 雇主配置的大模型应答（brainFor 按的是玩家 id）。
+   */
+  brainForUser: ((userId: string) => { brain: Brain; playerName: string; modelLabel?: string } | null) | null = null;
   /** 老板与某 agent 的进行中对话（玩家说话优先回给 TA） */
   private partners = new Map<string, { agentId: string; until: number }>();
   private orderSeq = 0;
@@ -217,6 +222,7 @@ export class Orchestrator {
   async talkTo(agentId: string, player: { id: string; x: number; z: number }) {
     const a = this.world.get(agentId);
     if (a.role === "boss") return;
+    if (a.controlledBy) return; // 被附身操控中：身体归玩家管，AI 不抢
     this.partners.set(player.id, { agentId, until: Date.now() + 45_000 });
     await this.face(a, { x: player.x, z: player.z });
     const line =
@@ -229,12 +235,17 @@ export class Orchestrator {
     await this.sayCasual(a.id, line);
   }
 
-  /** 老板回话：面朝说话人，按老板说的内容应答（配置了大模型的玩家由 LLM 接话） */
+  /** 老板回话：面朝说话人，按老板说的内容应答（个人 agent 用雇主的大模型，其余按说话玩家的） */
   async replyTo(agentId: string, text: string, speaker?: { id: string; x: number; z: number }, playerId?: string | null) {
     const a = this.world.get(agentId);
+    if (a.controlledBy) return; // 附身中：话由操控的玩家自己说
     const player = speaker ?? this.playerProvider?.().find(() => true);
     if (player) await this.face(a, { x: player.x, z: player.z });
-    const hook = playerId != null ? this.brainFor?.(playerId) : null;
+    const hook = a.ownerId
+      ? this.brainForUser?.(a.ownerId) ?? null
+      : playerId != null
+        ? this.brainFor?.(playerId) ?? null
+        : null;
     const line = hook
       ? await hook.brain.reply({ name: a.name, role: a.role, currentTask: a.currentTask }, text, hook.playerName)
       : agentReplyFor({ name: a.name, role: a.role, currentTask: a.currentTask }, text);
@@ -242,10 +253,20 @@ export class Orchestrator {
     await this.sayCasual(a.id, line);
   }
 
+  /** 附身结束（或个人 agent 出生校准）：让 agent 自己走回工位坐好 */
+  async returnHome(agentId: string) {
+    const a = this.world.agents.get(agentId);
+    if (!a || a.controlledBy) return;
+    this.world.setActivity(agentId, "walking");
+    await this.walkTo(a, a.homeDesk.seat, { x: a.homeDesk.desk.x, z: a.homeDesk.desk.z - 3 });
+    await this.sitAt(a, a.homeDesk.seat);
+    this.world.setActivity(agentId, "idle");
+  }
+
   /** agent 主动走近老板搭话（环境行为） */
   private async approachPlayer(player: { id: string; x: number; z: number }) {
     const idle = [...this.world.agents.values()].filter(
-      (a) => a.role !== "boss" && a.role !== "pm" && a.activity === "idle" && a.seated
+      (a) => a.role !== "boss" && a.role !== "pm" && a.activity === "idle" && a.seated && !a.controlledBy
     );
     if (idle.length === 0) return;
     const a = pick(idle);
@@ -300,7 +321,7 @@ export class Orchestrator {
   private async doBossSpeak(playerId: string, text: string, agentId?: string, speaker?: { id: string; x: number; z: number }) {
     const partner = this.partners.get(playerId);
     const target = agentId ?? (partner && partner.until > Date.now() ? partner.agentId : null);
-    if (target && this.world.agents.has(target) && target !== "boss") {
+    if (target && this.world.agents.has(target) && target !== "boss" && !this.world.agents.get(target)!.controlledBy) {
       this.partners.set(playerId, { agentId: target, until: Date.now() + 45_000 });
       await this.replyTo(target, text, speaker, playerId);
       return;
@@ -531,7 +552,8 @@ export class Orchestrator {
     this.emit("meeting:started", { projectId: project.id });
     this.emit("notify", { text: `📢 ${pm.name} 召集全员会议` });
     const pmAgent = pm;
-    const employees = [...this.world.agents.values()].filter((a) => a.role !== "boss" && a.role !== "pm");
+    // 被附身操控的员工不强制拉进会议室（身体归玩家管）
+    const employees = [...this.world.agents.values()].filter((a) => a.role !== "boss" && a.role !== "pm" && !a.controlledBy);
 
     await this.standUp(pmAgent);
     // 会议对白准备
@@ -593,7 +615,7 @@ export class Orchestrator {
   private async ambientTick() {
     if (this.ambientRunning || this.pmBusy) return;
     const idleAgents = [...this.world.agents.values()].filter(
-      (a) => a.role !== "boss" && a.role !== "pm" && a.activity === "idle" && a.seated
+      (a) => a.role !== "boss" && a.role !== "pm" && a.activity === "idle" && a.seated && !a.controlledBy
     );
     if (idleAgents.length === 0) return;
     if (Math.random() > 0.45) return;

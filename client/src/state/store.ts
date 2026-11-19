@@ -81,6 +81,10 @@ interface WorldState {
   roomPanelOpen: boolean;
   nearAgent: { id: string; name: string } | null;
   lastTalkAgent: { id: string; until: number } | null;
+  /** 附近可附身的自己员工 */
+  nearOwnAgent: { id: string; name: string } | null;
+  /** 正在附身操控的员工 */
+  possessAgent: { id: string; name: string } | null;
 
   setConnected(v: boolean): void;
   setJoined(name: string): void;
@@ -108,6 +112,9 @@ interface WorldState {
   toggleRoomPanel(): void;
   setNearAgent(a: { id: string; name: string } | null): void;
   setLastTalkAgent(a: { id: string; until: number }): void;
+  setNearOwnAgent(a: { id: string; name: string } | null): void;
+  setPossessAgent(a: { id: string; name: string } | null): void;
+  removeAgent(id: string): void;
 }
 
 export const useWorld = create<WorldState>((set) => ({
@@ -139,6 +146,8 @@ export const useWorld = create<WorldState>((set) => ({
   roomPanelOpen: false,
   nearAgent: null,
   lastTalkAgent: null,
+  nearOwnAgent: null,
+  possessAgent: null,
 
   setConnected: (v) => set({ connected: v }),
   setJoined: (name) => set({ joined: true, selfName: name }),
@@ -185,4 +194,13 @@ export const useWorld = create<WorldState>((set) => ({
   toggleRoomPanel: () => set((s) => ({ roomPanelOpen: !s.roomPanelOpen })),
   setNearAgent: (a) => set({ nearAgent: a }),
   setLastTalkAgent: (a) => set({ lastTalkAgent: a }),
+  setNearOwnAgent: (a) => set({ nearOwnAgent: a }),
+  setPossessAgent: (a) => set({ possessAgent: a, nearOwnAgent: null }),
+  removeAgent: (id) =>
+    set((s) => ({
+      agents: s.agents.filter((x) => x.id !== id),
+      nearAgent: s.nearAgent?.id === id ? null : s.nearAgent,
+      nearOwnAgent: s.nearOwnAgent?.id === id ? null : s.nearOwnAgent,
+      possessAgent: s.possessAgent?.id === id ? null : s.possessAgent,
+    })),
 }));

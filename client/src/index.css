@@ -1108,6 +1108,27 @@ input:focus-visible {
   transform: translate(-50%, 3px) scale(0.97);
 }
 
+/* 附身自己的员工（莓果紫），进行中=常亮 */
+.possessBtn {
+  bottom: 148px;
+  border: 2px solid rgba(154, 110, 226, 0.5);
+  background: linear-gradient(180deg, #c2a8ee, var(--berry, #9a6ee2));
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(74, 48, 128, 0.4);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 4px 0 #6d4bb0,
+    0 12px 22px rgba(154, 110, 226, 0.35);
+  animation: none;
+}
+
+.possessBtn:active {
+  animation: none;
+  transform: translate(-50%, 3px) scale(0.97);
+}
+
+.possessBtn.on {
+  background: linear-gradient(180deg, #8f78c9, #6d55b4);
+}
+
 .officePanel {
   position: absolute;
   top: 56px;
@@ -1642,6 +1663,9 @@ input:focus-visible {
     bottom: calc(92px + env(safe-area-inset-bottom, 0px));
   }
   .talkBtn {
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  }
+  .possessBtn {
     bottom: calc(150px + env(safe-area-inset-bottom, 0px));
   }
   /* 办公室项目面板：从贴底改为悬在 hotbar 上方 */

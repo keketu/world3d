@@ -1,12 +1,13 @@
 // P2 房间宿主：户外场景 ↔ office 室内场景的无缝切换器
 // 单渲染器：进房隐藏户外组、挂载室内组；agent 由 charSystem（本地 A*）驱动
+// 附身模式：玩家操控自己的员工——self 幽灵移动，agent 身体镜像跟随，其他人经服务端转发看到
 import * as THREE from "three";
-import { RoomHello, AgentInfo, DOOR } from "@world3d/shared";
+import { RoomHello, AgentInfo, DOOR, AgentMoveEvent } from "@world3d/shared";
 import { useWorld } from "../state/store";
 import { buildOfficeRoom, roomBlocked } from "../scene/office/room";
 import { createOfficeAgent, animateOfficeAgent, OfficeAgentRig } from "../scene/office/agents";
 import { charSystem, setArrivedEmitter } from "../scene/office/agentSystem";
-import { sendRoomArrived, sendRoomJoin, sendRoomLeave, sendRoomTalkTo } from "../net/socket";
+import { sendRoomArrived, sendRoomJoin, sendRoomLeave, sendRoomTalkTo, sendRoomPossess, sendRoomRelease, sendAgentMove } from "../net/socket";
 import { clientWorld } from "./world";
 
 interface LabelApi {
@@ -38,6 +39,8 @@ const ROOM_DIST_MAX = 12;
 
 class RoomHost {
   active = false;
+  /** 附身中的员工 id（null = 正常操控自己） */
+  possessedId: string | null = null;
   private deps: HostDeps | null = null;
   private roomGroup: THREE.Group | null = null;
   /** 房间实体网格（房间模式下作为点击射线目标） */
@@ -46,8 +49,11 @@ class RoomHost {
   private rigRoot: THREE.Group | null = null;
   private rigs = new Map<string, { rig: OfficeAgentRig; info: AgentInfo }>();
   private bubbles = new Map<string, number>(); // agentId -> until
+  /** 别人附身操控的员工：服务端转发的目标位置（本地平滑跟随） */
+  private remoteMoves = new Map<string, { x: number; z: number; rotY: number; anim: "idle" | "walk"; ts: number }>();
   private savedFog: { near: number; far: number } | null = null;
   private savedCamDist = 13;
+  private moveTimer = 0;
   /** 办公楼门口的世界坐标（由 game.ts 根据造物位置更新） */
   doorWorld: { x: number; z: number } | null = null;
 
@@ -95,6 +101,44 @@ class RoomHost {
 
   cameraDistRange(): [number, number] {
     return this.active ? [ROOM_DIST_MIN, ROOM_DIST_MAX] : [5, 30];
+  }
+
+  // ---------- 附身（以员工视角操控） ----------
+
+  /** E 键 / 按钮：附身面前自己的空闲员工 */
+  possessNearby() {
+    const near = useWorld.getState().nearOwnAgent;
+    if (!near || this.possessedId) return;
+    sendRoomPossess(near.id, (ok, reason) => {
+      if (!ok) {
+        useWorld.getState().pushToast(reason || "附身失败");
+        return;
+      }
+      this.beginPossess(near.id, near.name);
+    });
+  }
+
+  private beginPossess(agentId: string, name: string) {
+    if (!this.active) return;
+    this.possessedId = agentId;
+    charSystem.takeover(agentId); // 清 AI 订单，身体归玩家
+    // self 幽灵挪到员工脚下，操控即从 TA 的位置开始
+    const st = charSystem.states.get(agentId);
+    if (st && this.deps) this.deps.setSelf(st.x, 0, st.z, st.rotY);
+    useWorld.getState().setPossessAgent({ id: agentId, name });
+    useWorld.getState().pushToast(`🎭 已化身 ${name}（WASD/点击移动，聊天=以 TA 名义说话）`);
+  }
+
+  /** 结束附身：身体停在原地，AI 带员工回工位 */
+  release() {
+    if (!this.possessedId) return;
+    sendRoomRelease(() => this.endPossess());
+  }
+
+  private endPossess() {
+    if (!this.possessedId) return;
+    this.possessedId = null;
+    useWorld.getState().setPossessAgent(null);
   }
 
   // ---------- 进入 ----------
@@ -191,6 +235,8 @@ class RoomHost {
       labels.removeLabel(`bubble-${id}`);
     }
     this.bubbles.clear();
+    this.remoteMoves.clear();
+    this.endPossess(); // 出房间必然解除附身（服务端也会兜底）
 
     const st = useWorld.getState();
     st.setInRoom(false, null);
@@ -222,19 +268,46 @@ class RoomHost {
     this.rigs.delete(id);
   }
 
-  /** room:agent 广播：更新 info（活动/任务） */
+  /** room:agent 广播：更新 info（活动/任务/附身）；新面孔入座；改名换色重建 rig */
   updateAgent(a: AgentInfo) {
     const e = this.rigs.get(a.id);
-    if (e) e.info = a;
-    const st = charSystem.states.get(a.id);
-    if (st) charSystem.infos.set(a.id, a);
+    if (e && (e.info.name !== a.name || e.info.color !== a.color || e.info.role !== a.role)) {
+      this.removeRig(a.id);
+      this.ensureRig(a);
+    } else if (!e) {
+      this.ensureRig(a);
+      charSystem.hydrate([a]); // 新员工直接坐在自己的工位
+    }
+    const entry = this.rigs.get(a.id);
+    if (entry) entry.info = a;
+    charSystem.infos.set(a.id, a);
     useWorld.getState().upsertAgent(a);
+    if (!a.controlledBy) this.remoteMoves.delete(a.id);
+    // 服务端强制解除了我们的附身（断线兜底 / 员工被解雇）
+    if (this.possessedId === a.id && !a.controlledBy) this.endPossess();
+  }
+
+  /** room:agentRemoved：员工被解雇离场 */
+  removeAgent(id: string) {
+    if (!this.deps) return;
+    this.removeRig(id);
+    this.deps.labels.removeLabel(`agent-${id}`);
+    this.deps.labels.removeLabel(`bubble-${id}`);
+    charSystem.drop(id);
+    this.remoteMoves.delete(id);
+    useWorld.getState().removeAgent(id);
+    if (this.possessedId === id) this.endPossess();
   }
 
   /** 房间内玩家的远程分身（由 socket room:playerJoin/leave 驱动，同 clientWorld.remotes 主管线） */
 
   showBubble(agentId: string, text: string, holdMs: number) {
     this.bubbles.set(agentId, Date.now() + holdMs + 600);
+  }
+
+  /** 别人附身操控的员工：服务端转发的位置 → 本地平滑跟随 */
+  remoteAgentMove(m: AgentMoveEvent) {
+    this.remoteMoves.set(m.agentId, { x: m.x, z: m.z, rotY: m.rotY, anim: m.anim, ts: Date.now() });
   }
 
   // ---------- 每帧 ----------
@@ -247,16 +320,54 @@ class RoomHost {
     const now = Date.now();
     let near: { id: string; name: string } | null = null;
     let nearD = Infinity;
+    let nearOwn: { id: string; name: string } | null = null;
+    let nearOwnD = Infinity;
     const self = this.deps.getSelf();
+    const myUserId = useWorld.getState().auth.user?.id ?? null;
     for (const [id, entry] of this.rigs) {
       const st = charSystem.states.get(id);
       if (!st) continue;
+      // 附身中：员工身体镜像 self 的移动（操控端）；别人附身：平滑跟随服务端转发位置
+      if (this.possessedId === id) {
+        st.x = self.x;
+        st.z = self.z;
+        st.y = 0;
+        st.rotY = self.rotY;
+        st.seated = false;
+      } else {
+        const rm = this.remoteMoves.get(id);
+        if (rm) {
+          const k = Math.min(1, dt * 10);
+          st.x += (rm.x - st.x) * k;
+          st.z += (rm.z - st.z) * k;
+          const d = ((rm.rotY - st.rotY + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+          st.rotY += d * k;
+          st.anim = Math.hypot(rm.x - st.x, rm.z - st.z) > 0.12 ? "walk" : rm.anim === "walk" ? "walk" : "idle";
+          st.seated = false;
+          st.y = 0;
+        }
+      }
       animateOfficeAgent(entry.rig, st, entry.info, time);
-      labels.setLabel(`agent-${id}`, entry.info.name, st.x, st.y + 1.15, st.z, "nameTag", 40);
-      const dist = Math.hypot(st.x - self.x, st.z - self.z);
-      if (dist < 2.4 && dist < nearD) {
-        nearD = dist;
-        near = { id, name: entry.info.name };
+      const tag = entry.info.controlledBy ? `${entry.info.name} 🎭` : entry.info.name;
+      labels.setLabel(`agent-${id}`, tag, st.x, st.y + 1.15, st.z, "nameTag", 40);
+      if (this.possessedId !== id) {
+        const dist = Math.hypot(st.x - self.x, st.z - self.z);
+        if (dist < 2.4 && dist < nearD) {
+          nearD = dist;
+          near = { id, name: entry.info.name };
+        }
+        // 自己雇佣的空闲员工在附近 → 可附身
+        if (
+          myUserId &&
+          entry.info.ownerId === myUserId &&
+          !entry.info.controlledBy &&
+          entry.info.activity === "idle" &&
+          dist < 2.6 &&
+          dist < nearOwnD
+        ) {
+          nearOwnD = dist;
+          nearOwn = { id, name: entry.info.name };
+        }
       }
       const until = this.bubbles.get(id);
       if (until && until > now) {
@@ -267,9 +378,20 @@ class RoomHost {
         labels.removeLabel(`bubble-${id}`);
       }
     }
-    // 最近 agent 变化才写 store（避免每帧触发渲染）
+    // 最近 agent / 可附身员工变化才写 store（避免每帧触发渲染）
     const st = useWorld.getState();
     if (st.nearAgent?.id !== (near?.id ?? null)) st.setNearAgent(near);
+    if (st.nearOwnAgent?.id !== (nearOwn?.id ?? null)) st.setNearOwnAgent(nearOwn);
+
+    // 附身中：节流同步所操控员工的位置给服务端（其他人由此看到 TA 在动）
+    if (this.possessedId) {
+      this.moveTimer += dt;
+      if (this.moveTimer >= 0.12) {
+        this.moveTimer = 0;
+        const cs = charSystem.states.get(this.possessedId);
+        if (cs) sendAgentMove(this.possessedId, cs.x, cs.z, cs.rotY, cs.anim === "walk" ? "walk" : "idle");
+      }
+    }
   }
 
   /** E 键/按钮：和面前最近的 agent 开聊 */

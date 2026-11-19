@@ -9,6 +9,7 @@ import {
   SitOrder,
   StandOrder,
   EMPLOYEE_DESKS,
+  EXTRA_DESKS,
   BOSS_SPOT,
   PM_SPOT,
 } from "@world3d/shared";
@@ -66,7 +67,13 @@ function smoothTurn(cur: number, target: number, k: number) {
   return lerpAngle(cur, target, Math.min(1, k));
 }
 
+const ALL_DESKS = [...EMPLOYEE_DESKS, ...EXTRA_DESKS, PM_SPOT, BOSS_SPOT];
+
 function homeOf(a: AgentInfo) {
+  if (a.deskId) {
+    const d = ALL_DESKS.find((x) => x.id === a.deskId);
+    if (d) return d;
+  }
   if (a.role === "boss") return BOSS_SPOT;
   if (a.role === "pm") return PM_SPOT;
   return EMPLOYEE_DESKS.find((d) => d.id.endsWith(a.id)) ?? EMPLOYEE_DESKS[0];
@@ -99,6 +106,26 @@ class CharSystem {
     const q = this.queues.get(order.agentId) ?? [];
     q.push(order);
     this.queues.set(order.agentId, q);
+  }
+
+  /** 附身接管：清空该 agent 的待办订单，位置动画由操控方直写 */
+  takeover(agentId: string) {
+    this.queues.delete(agentId);
+    this.execs.delete(agentId);
+    const st = this.states.get(agentId);
+    if (st) {
+      st.seated = false;
+      st.y = 0;
+      st.anim = "idle";
+    }
+  }
+
+  /** 移除 agent（解雇离场） */
+  drop(agentId: string) {
+    this.queues.delete(agentId);
+    this.execs.delete(agentId);
+    this.states.delete(agentId);
+    this.infos.delete(agentId);
   }
 
   update(dt: number) {

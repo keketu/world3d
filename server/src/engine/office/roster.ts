@@ -1,5 +1,5 @@
-// Office 房间名册：老板 + PM + 5 员工（移植自 office3d，去除 socket 依赖）
-import { AgentInfo, AgentRole, BOSS_SPOT, EMPLOYEE_DESKS, PM_SPOT, DeskSpot } from "@world3d/shared";
+// Office 房间名册：老板 + PM + 5 固定员工 + 玩家雇佣的个人 agent（移植自 office3d，去除 socket 依赖）
+import { AgentInfo, AgentRole, BOSS_SPOT, EMPLOYEE_DESKS, EXTRA_DESKS, PM_SPOT, DeskSpot, PERSONAL_PALETTE } from "@world3d/shared";
 
 // 每个 agent 的运行时状态（含客户端执行所需的位置信息）
 export interface AgentRuntime extends AgentInfo {
@@ -27,6 +27,8 @@ export class OfficeRoster {
   agents = new Map<string, AgentRuntime>();
   /** 活动状态变化回调（由 OfficeRoom 接线到房间广播） */
   onChange: (a: AgentInfo) => void = () => {};
+  /** 个人 agent 被移出房间的回调（OfficeRoom 接线广播 room:agentRemoved） */
+  onRemove: (id: string) => void = () => {};
 
   constructor() {
     const desks = [...EMPLOYEE_DESKS];
@@ -35,7 +37,7 @@ export class OfficeRoster {
       if (def.role === "boss") homeDesk = BOSS_SPOT;
       else if (def.role === "pm") homeDesk = PM_SPOT;
       else homeDesk = desks.shift()!;
-      this.agents.set(def.id, { ...def, activity: "idle", seated: true, homeDesk });
+      this.agents.set(def.id, { ...def, activity: "idle", seated: true, homeDesk, deskId: homeDesk.id, controlledBy: null });
     }
   }
 
@@ -62,6 +64,10 @@ export class OfficeRoster {
       activity: a.activity,
       currentTask: a.currentTask,
       currentProjectId: a.currentProjectId,
+      ownerId: a.ownerId,
+      ownerName: a.ownerName,
+      controlledBy: a.controlledBy,
+      deskId: a.deskId,
     };
   }
 
@@ -69,16 +75,69 @@ export class OfficeRoster {
     return [...this.agents.values()].map((a) => this.publicInfo(a));
   }
 
-  /** 按角色找空闲员工；roles 可为空 */
+  /** 个人 agent（我的员工）们 */
+  personalAgents(): AgentRuntime[] {
+    return [...this.agents.values()].filter((a) => a.ownerId);
+  }
+
+  /** 播种一个个人 agent：有空余加座才进房（返回 null = 房间满员） */
+  spawnPersonal(def: { id: string; name: string; role: AgentRole; personality: string; colorIdx: number; ownerId: string; ownerName: string }): AgentRuntime | null {
+    if (this.agents.has(def.id)) return this.agents.get(def.id)!;
+    const used = new Set([...this.agents.values()].map((a) => a.homeDesk.id));
+    const homeDesk = EXTRA_DESKS.find((d) => !used.has(d.id));
+    if (!homeDesk) return null;
+    const a: AgentRuntime = {
+      id: def.id,
+      name: def.name,
+      role: def.role,
+      color: PERSONAL_PALETTE[def.colorIdx % PERSONAL_PALETTE.length],
+      personality: def.personality,
+      activity: "idle",
+      seated: true,
+      homeDesk,
+      deskId: homeDesk.id,
+      controlledBy: null,
+      ownerId: def.ownerId,
+      ownerName: def.ownerName,
+    };
+    this.agents.set(def.id, a);
+    this.onChange(this.publicInfo(a)); // 房间内成员即时看到新同事入座
+    return a;
+  }
+
+  /** 个人 agent 改名/改角色等 → 广播更新 */
+  updatePersonal(id: string, patch: { name?: string; role?: AgentRole; personality?: string; colorIdx?: number }) {
+    const a = this.agents.get(id);
+    if (!a || !a.ownerId) return;
+    if (patch.name !== undefined) a.name = patch.name;
+    if (patch.role !== undefined) a.role = patch.role;
+    if (patch.personality !== undefined) a.personality = patch.personality;
+    if (patch.colorIdx !== undefined) a.color = PERSONAL_PALETTE[patch.colorIdx % PERSONAL_PALETTE.length];
+    this.onChange(this.publicInfo(a));
+  }
+
+  /** 个人 agent 被解雇 → 移出房间 */
+  removePersonal(id: string) {
+    const a = this.agents.get(id);
+    if (!a || !a.ownerId) return;
+    this.agents.delete(id);
+    this.onRemove(id);
+  }
+
+  /** 按角色找空闲员工；roles 可为空。被附身操控的跳过；固定员工优先于个人 agent */
   findFreeEmployee(preferRoles?: string[]): string | null {
     const roles = preferRoles ?? [];
-    for (const role of roles) {
-      for (const a of this.agents.values()) {
-        if (a.role === role && a.activity === "idle") return a.id;
+    const fixed = [...this.agents.values()].filter((a) => !a.ownerId);
+    const personal = [...this.agents.values()].filter((a) => a.ownerId);
+    for (const pool of [fixed, personal]) {
+      for (const role of roles) {
+        for (const a of pool) {
+          if (a.role === role && a.activity === "idle" && !a.controlledBy) return a.id;
+        }
       }
-    }
-    for (const a of this.agents.values()) {
-      if (a.role !== "boss" && a.role !== "pm" && a.activity === "idle") return a.id;
+      for (const a of pool) {
+        if (a.role !== "boss" && a.role !== "pm" && a.activity === "idle" && !a.controlledBy) return a.id;
+      }
     }
     return null;
   }

@@ -41,6 +41,13 @@ function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boole
     if (!t) return;
     const st = useWorld.getState();
     if (st.inRoom) {
+      // 附身中：以被操控员工的名义说话
+      if (st.possessAgent) {
+        sendRoomSay(t, st.possessAgent.id);
+        st.pushChat({ id: `local-${Date.now()}`, kind: "player", from: `${st.possessAgent.name}(${st.selfName || "我"})`, fromId: st.selfId, text: t.slice(0, 120), ts: Date.now() });
+        setText("");
+        return;
+      }
       // 站在谁身边就是跟谁说话（不用先按 E）；不在身边才回落到 45s 内聊过的人
       const near = st.nearAgent;
       const partner = st.lastTalkAgent;
@@ -232,6 +239,8 @@ export default function App() {
   const inRoom = useWorld((s) => s.inRoom);
   const roomPrompt = useWorld((s) => s.roomPrompt);
   const nearAgent = useWorld((s) => s.nearAgent);
+  const nearOwnAgent = useWorld((s) => s.nearOwnAgent);
+  const possessAgent = useWorld((s) => s.possessAgent);
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -293,7 +302,17 @@ export default function App() {
               {roomPrompt === "enter" ? "🚪 进入办公室（E）" : "🚪 离开办公室（E）"}
             </button>
           )}
-          {!roomPrompt && nearAgent && (
+          {possessAgent && (
+            <button className="doorBtn possessBtn on" onClick={() => roomHost.release()}>
+              ↩ 退出附身 · {possessAgent.name}（E）
+            </button>
+          )}
+          {!roomPrompt && !possessAgent && nearOwnAgent && (
+            <button className="doorBtn possessBtn" onClick={() => roomHost.possessNearby()}>
+              🎭 附身 {nearOwnAgent.name}（E）
+            </button>
+          )}
+          {!roomPrompt && !possessAgent && !nearOwnAgent && nearAgent && (
             <button className="doorBtn talkBtn" onClick={() => roomHost.talkToNearby()}>
               💬 和 {nearAgent.name} 聊聊（E）
             </button>
@@ -302,7 +321,9 @@ export default function App() {
           {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
           <div className="hint">
             {inRoom
-              ? "点击地面行走 · WASD 移动 · 点 📋 派项目（E）· 走到门口离开 · 聊天框说话=老板发言"
+              ? possessAgent
+                ? `🎭 你是 ${possessAgent.name}：WASD/点击行走 · 聊天框=以 TA 名义说话 · E 退出附身`
+                : "点击地面行走 · WASD 移动 · 点 📋 派项目（E）· 🎭 附身自己的员工（E）· 走到门口离开"
               : isTouch
                 ? "点击地面行走 · 选中道具后点地放置 · 长按拆除 · 单指拖动转视角 · 双指缩放"
                 : "点击地面行走 · WASD 移动 · 选道具（2-7）点地放置 · 右键拆除 · 拖拽转视角（⚙可调灵敏度）· V 切换视角"}

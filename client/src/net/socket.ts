@@ -126,6 +126,15 @@ function registerHandlers(s: Socket) {
     roomHost.updateAgent(a);
   });
 
+  s.on("room:agentRemoved", ({ id }: { id: string }) => {
+    roomHost.removeAgent(id);
+  });
+
+  // 别人附身操控的员工：位置由服务端转发，本地平滑跟随
+  s.on("room:agentMove", (m) => {
+    roomHost.remoteAgentMove(m);
+  });
+
   s.on("room:order", (o) => {
     charSystem.push(o);
   });
@@ -192,6 +201,21 @@ export function sendRoomAssign(brief: string) {
 
 export function sendRoomSay(text: string, agentId?: string) {
   socket?.emit("room:say", agentId ? { text, agentId } : { text });
+}
+
+/** 附身自己的空闲员工（ack ok 才进入操控） */
+export function sendRoomPossess(agentId: string, cb: (ok: boolean, reason?: string) => void) {
+  socket?.emit("room:possess", { agentId }, (res: { ok: boolean; reason?: string }) => cb(!!res?.ok, res?.reason));
+}
+
+/** 结束附身 */
+export function sendRoomRelease(cb?: (ok: boolean) => void) {
+  socket?.emit("room:release", {}, (res: { ok: boolean }) => cb?.(!!res?.ok));
+}
+
+/** 附身中：同步所操控员工的位置（节流 ~8Hz） */
+export function sendAgentMove(agentId: string, x: number, z: number, rotY: number, anim: "idle" | "walk") {
+  socket?.emit("room:agentMove", { agentId, x, z, rotY, anim });
 }
 
 export function join(name: string, onHello: (h: HelloPayload) => void) {

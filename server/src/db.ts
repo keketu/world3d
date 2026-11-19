@@ -14,6 +14,18 @@ export interface ChatLogRow {
   text: string;
 }
 
+/** 个人 agent（我的员工）一行：agents JOIN users 带雇主昵称 */
+export interface DbAgentRow {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  name: string;
+  role: string;
+  personality: string;
+  colorIdx: number;
+  createdAt: number;
+}
+
 // SQLite 持久化：道具造物（含创建者） + 地形雕塑 + office 房间（项目/任务/对话）
 export class Db {
   private db: BetterSqlite3.Database;
@@ -101,6 +113,14 @@ export class Db {
         enabled INTEGER NOT NULL DEFAULT 1,
         updatedAt INTEGER
       );
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        ownerId TEXT NOT NULL,
+        name TEXT, role TEXT, personality TEXT,
+        colorIdx INTEGER NOT NULL DEFAULT 0,
+        createdAt INTEGER,
+        FOREIGN KEY(ownerId) REFERENCES users(id) ON DELETE CASCADE
+      );
       CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_log(ts);
       CREATE INDEX IF NOT EXISTS idx_chat_from ON chat_log(fromId);
       CREATE INDEX IF NOT EXISTS idx_users_created ON users(createdAt);
@@ -108,6 +128,7 @@ export class Db {
       CREATE INDEX IF NOT EXISTS idx_objects_created ON objects(createdAt);
       CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
       CREATE INDEX IF NOT EXISTS idx_event_ts ON event_log(ts);
+      CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(ownerId);
     `);
     // office：重启后未完成的项目标记 paused（编排器 attach 时 resume）
     this.db
@@ -361,6 +382,79 @@ export class Db {
 
   countLlmUsers(): number {
     return (this.db.prepare(`SELECT COUNT(*) AS c FROM user_llm WHERE enabled=1 AND apiKeyEnc IS NOT NULL`).get() as { c: number }).c;
+  }
+
+  // ---------- 我的员工（agents：用户雇佣的个人 agent） ----------
+
+  /** 某用户的员工列表 */
+  listAgentsByOwner(ownerId: string): DbAgentRow[] {
+    return this.db
+      .prepare(
+        `SELECT a.id, a.ownerId, u.name AS ownerName, a.name, a.role, a.personality, a.colorIdx, a.createdAt
+         FROM agents a LEFT JOIN users u ON u.id = a.ownerId
+         WHERE a.ownerId = ? ORDER BY a.createdAt`
+      )
+      .all(ownerId) as DbAgentRow[];
+  }
+
+  /** 全体个人 agent（启动播种进办公室，按雇佣先后占座） */
+  listAllAgents(): DbAgentRow[] {
+    return this.db
+      .prepare(
+        `SELECT a.id, a.ownerId, u.name AS ownerName, a.name, a.role, a.personality, a.colorIdx, a.createdAt
+         FROM agents a LEFT JOIN users u ON u.id = a.ownerId
+         ORDER BY a.createdAt`
+      )
+      .all() as DbAgentRow[];
+  }
+
+  getAgent(id: string): DbAgentRow | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT a.id, a.ownerId, u.name AS ownerName, a.name, a.role, a.personality, a.colorIdx, a.createdAt
+           FROM agents a LEFT JOIN users u ON u.id = a.ownerId WHERE a.id = ?`
+        )
+        .get(id) as DbAgentRow | undefined) ?? null
+    );
+  }
+
+  insertAgent(row: { id: string; ownerId: string; name: string; role: string; personality: string; colorIdx: number; createdAt: number }) {
+    this.db
+      .prepare(`INSERT INTO agents (id,ownerId,name,role,personality,colorIdx,createdAt) VALUES (?,?,?,?,?,?,?)`)
+      .run(row.id, row.ownerId, row.name, row.role, row.personality, row.colorIdx, row.createdAt);
+  }
+
+  updateAgent(id: string, patch: { name?: string; role?: string; personality?: string; colorIdx?: number }) {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    if (patch.name !== undefined) {
+      sets.push("name=?");
+      args.push(patch.name);
+    }
+    if (patch.role !== undefined) {
+      sets.push("role=?");
+      args.push(patch.role);
+    }
+    if (patch.personality !== undefined) {
+      sets.push("personality=?");
+      args.push(patch.personality);
+    }
+    if (patch.colorIdx !== undefined) {
+      sets.push("colorIdx=?");
+      args.push(patch.colorIdx);
+    }
+    if (!sets.length) return;
+    args.push(id);
+    this.db.prepare(`UPDATE agents SET ${sets.join(", ")} WHERE id=?`).run(...args);
+  }
+
+  deleteAgent(id: string) {
+    this.db.prepare(`DELETE FROM agents WHERE id=?`).run(id);
+  }
+
+  countAgentsByOwner(ownerId: string): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS c FROM agents WHERE ownerId=?`).get(ownerId) as { c: number }).c;
   }
 
   countTodayNewUsers(): number {

@@ -1,22 +1,26 @@
 // 个人面板接口（/api/me/*）：任何登录用户可访问，只看自己的数据
 // 与 /api/admin/* 的区别：admin 需要 admin 角色，这里只需要有效 token
 import type { Express } from "express";
+import { randomUUID } from "node:crypto";
 import type { Db } from "./db.js";
 import type { World } from "./engine/world.js";
 import type { Presence } from "./engine/presence.js";
+import type { OfficeRoom } from "./engine/office/officeRoom.js";
 import { verifyToken } from "./auth.js";
 import { verifyObjectProof } from "./attest.js";
 import { chatComplete, encryptApiKey, isAllowedBaseUrl, providerById, publicProviders } from "./llm.js";
 import type { AuthedRequest } from "./auth.js";
+import { AGENTS_PER_USER, PERSONAL_PALETTE, PERSONAL_ROLES, PERSONAL_ROOM_CAP } from "@world3d/shared";
 
 interface MeDeps {
   db: Db;
   world: World;
   presence: Presence;
+  officeRoom: OfficeRoom;
 }
 
 export function registerMeApi(app: Express, deps: MeDeps) {
-  const { db, world, presence } = deps;
+  const { db, world, presence, officeRoom } = deps;
 
   /** 身份校验：token 有效 + 账号存在且未封禁 */
   const me = (req: AuthedRequest): { id: string; name: string; role: string; createdAt: number } | null => {
@@ -245,5 +249,75 @@ export function registerMeApi(app: Express, deps: MeDeps) {
         reason: `调用失败（${err.status ? `HTTP ${err.status}` : "网络"}）：${(err.message ?? "").slice(0, 180)}`,
       });
     }
+  });
+
+  // ---------- 我的员工（个人 agent：雇佣 / 改造 / 解雇 + 附身进办公室） ----------
+
+  const agentNameOk = (n: string) => /^[\u4e00-\u9fa5A-Za-z0-9_-]{2,12}$/.test(n);
+  const roleOk = (r: string) => (PERSONAL_ROLES as string[]).includes(r);
+
+  /** 校验并规范化员工字段（新建/编辑共用），返回 null=合法 */
+  const validAgentBody = (b: { name?: string; role?: string; personality?: string; colorIdx?: number }) => {
+    const name = String(b.name ?? "").trim();
+    if (!agentNameOk(name)) return { reason: "名字需 2-12 位中英文/数字" };
+    const role = String(b.role ?? "").trim();
+    if (!roleOk(role)) return { reason: "角色需为 产品/设计/前端/后端/测试 之一" };
+    const personality = String(b.personality ?? "").trim().slice(0, 100);
+    const colorIdx = Math.max(0, Math.min(PERSONAL_PALETTE.length - 1, Math.floor(Number(b.colorIdx ?? 0)) || 0));
+    return { name, role, personality, colorIdx };
+  };
+
+  /** 我的员工列表（带在岗状态：房间工位有限，先雇先上） */
+  app.get("/api/me/agents", (req: AuthedRequest, res) => {
+    const user = me(req);
+    if (!user) return res.status(401).json({ ok: false, reason: "请先登录" });
+    const rows = db.listAgentsByOwner(user.id).map((r) => ({
+      ...r,
+      color: PERSONAL_PALETTE[r.colorIdx % PERSONAL_PALETTE.length],
+      spawned: officeRoom.roster.agents.has(r.id),
+      controlled: !!officeRoom.roster.agents.get(r.id)?.controlledBy,
+    }));
+    res.json({ ok: true, agents: rows, cap: AGENTS_PER_USER, roomCap: PERSONAL_ROOM_CAP, palette: PERSONAL_PALETTE, roles: PERSONAL_ROLES });
+  });
+
+  /** 雇佣一位员工 */
+  app.post("/api/me/agents", (req: AuthedRequest, res) => {
+    const user = me(req);
+    if (!user) return res.status(401).json({ ok: false, reason: "请先登录" });
+    if (db.countAgentsByOwner(user.id) >= AGENTS_PER_USER) return res.status(400).json({ ok: false, reason: `最多雇佣 ${AGENTS_PER_USER} 位员工` });
+    const v = validAgentBody(req.body as { name?: string; role?: string; personality?: string; colorIdx?: number });
+    if ("reason" in v) return res.status(400).json({ ok: false, reason: v.reason });
+    const id = `pa-${randomUUID().slice(0, 8)}`;
+    db.insertAgent({ id, ownerId: user.id, name: v.name, role: v.role, personality: v.personality, colorIdx: v.colorIdx, createdAt: Date.now() });
+    db.insertEvent("agent", user.name, user.id, `雇佣了员工 ${v.name}（${v.role}）`, "{}");
+    officeRoom.syncPersonalAgents(); // 有空位就让他进办公室入座
+    res.json({ ok: true, id, spawned: officeRoom.roster.agents.has(id) });
+  });
+
+  /** 改造员工（改名/换岗/换性格/换代表色） */
+  app.put("/api/me/agents/:id", (req: AuthedRequest, res) => {
+    const user = me(req);
+    if (!user) return res.status(401).json({ ok: false, reason: "请先登录" });
+    const row = db.getAgent(String((req.params as { id: string }).id));
+    if (!row || row.ownerId !== user.id) return res.status(404).json({ ok: false, reason: "没有这位员工" });
+    const v = validAgentBody(req.body as { name?: string; role?: string; personality?: string; colorIdx?: number });
+    if ("reason" in v) return res.status(400).json({ ok: false, reason: v.reason });
+    db.updateAgent(row.id, { name: v.name, role: v.role, personality: v.personality, colorIdx: v.colorIdx });
+    db.insertEvent("agent", user.name, user.id, `改造了员工 ${v.name}（${v.role}）`, "{}");
+    officeRoom.syncPersonalAgents();
+    res.json({ ok: true });
+  });
+
+  /** 解雇员工（若在附身中先解除） */
+  app.delete("/api/me/agents/:id", (req: AuthedRequest, res) => {
+    const user = me(req);
+    if (!user) return res.status(401).json({ ok: false, reason: "请先登录" });
+    const row = db.getAgent(String((req.params as { id: string }).id));
+    if (!row || row.ownerId !== user.id) return res.status(404).json({ ok: false, reason: "没有这位员工" });
+    officeRoom.releaseAgent(row.id); // 附身中的先请下来
+    db.deleteAgent(row.id);
+    db.insertEvent("agent", user.name, user.id, `解雇了员工 ${row.name}`, "{}");
+    officeRoom.syncPersonalAgents();
+    res.json({ ok: true });
   });
 }

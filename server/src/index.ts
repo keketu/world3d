@@ -130,6 +130,8 @@ builder.attach(io);
 const ROOM_EVENT_MAP: Record<string, string> = {
   "agent:order": "room:order",
   "agent:updated": "room:agent",
+  "agent:removed": "room:agentRemoved",
+  "agentMove": "room:agentMove",
   "dialogue:line": "room:dialogue",
   "project:updated": "room:project",
   "task:updated": "room:task",
@@ -141,6 +143,9 @@ const ROOM_EVENT_MAP: Record<string, string> = {
   chat: "chat",
 };
 
+// 启动播种：把玩家雇佣的个人 agent 送进办公室（有空余加座才入座）
+officeRoom.syncPersonalAgents();
+
 /** 房间内广播：发给所有在该房间的玩家 */
 const emitToRoom = (ev: string, payload: unknown) => {
   const wired = ROOM_EVENT_MAP[ev] ?? `room:${ev}`;
@@ -151,7 +156,15 @@ officeRoom.attach(emitToRoom);
 officeRoom.orch.brainFor = (playerId) => {
   const p = playerId ? presence.get(playerId) : null;
   if (!p?.userId) return null;
-  const cfg = db.getLlmConfig(p.userId);
+  return llmHookForUser(p.userId, p.name);
+};
+// 个人 agent（我的员工）被搭话：用雇主配置的大模型应答
+officeRoom.orch.brainForUser = (userId) => {
+  const online = presence.findByUserId(userId);
+  return llmHookForUser(userId, online?.name ?? db.findUserById(userId)?.name ?? "老板");
+};
+function llmHookForUser(userId: string, playerName: string) {
+  const cfg = db.getLlmConfig(userId);
   if (!cfg || !cfg.enabled) return null;
   return {
     brain: new LlmBrain({
@@ -162,10 +175,10 @@ officeRoom.orch.brainFor = (playerId) => {
       temperature: cfg.temperature,
       persona: cfg.persona,
     }),
-    playerName: p.name,
+    playerName,
     modelLabel: cfg.model,
   };
-};
+}
 // 编排器环境行为需要房间内玩家位置（agent 主动走近老板搭话）
 officeRoom.orch.playerProvider = () =>
   presence.playersInRoom(OFFICE_ROOM_ID).map((p) => ({ id: p.id, x: p.x, z: p.z }));
@@ -177,6 +190,11 @@ function emitSameSpace(target: Player | null, event: string, payload: unknown) {
     if (p.id === target.id || p.roomId !== target.roomId) continue;
     toSocket(p.socketId, event, payload);
   }
+}
+
+/** 离开世界/断线/换身份前：解除附身（被操控的员工自己走回工位） */
+function releasePossessionOnExit(playerId: string) {
+  if (officeRoom.possessorOf(playerId)) officeRoom.releaseByPlayer(playerId, true);
 }
 
 // ---------- REST ----------
@@ -258,7 +276,7 @@ app.get("/api/attest/object/:id", (req, res) => {
 registerAdminApi(app, { db, world, presence, io, toSocket, adminFromReq, audit });
 
 // 个人面板（任何登录用户）：只读自己的数据
-registerMeApi(app, { db, world, presence });
+registerMeApi(app, { db, world, presence, officeRoom });
 
 // 兼容旧路径（保留给旧前端）
 app.get("/api/admin/stats", (req: AuthedRequest, res) => {
@@ -340,6 +358,7 @@ io.on("connection", (socket: Socket) => {
       const old = presence.leave(playerId);
       playerId = null;
       if (old) {
+        releasePossessionOnExit(old.id);
         if (old.roomId) emitToRoom("playerLeave", { id: old.id });
         emitSameSpace(old, "player:leave", { id: old.id, name: old.name });
         const leaveText = `🚪 ${old.name} 离开了世界`;
@@ -389,6 +408,7 @@ io.on("connection", (socket: Socket) => {
     const p = presence.leave(playerId);
     playerId = null;
     if (!p) return;
+    releasePossessionOnExit(p.id);
     if (p.roomId) emitToRoom("playerLeave", { id: p.id });
     emitSameSpace(p, "player:leave", { id: p.id, name: p.name });
     const leaveText = `🚪 ${p.name} 离开了世界`;
@@ -489,6 +509,7 @@ io.on("connection", (socket: Socket) => {
     if (!playerId) return;
     const p = presence.leave(playerId);
     if (p) {
+      releasePossessionOnExit(p.id);
       if (p.roomId) emitToRoom("playerLeave", { id: p.id });
       emitSameSpace(p, "player:leave", { id: p.id, name: p.name });
       const leaveText = `🚪 ${p.name} 离开了世界`;
@@ -522,6 +543,7 @@ io.on("connection", (socket: Socket) => {
   socket.on("room:leave", (_payload: unknown, ack?: (res: { ok: boolean; outdoor?: { x: number; y: number; z: number; rotY: number } }) => void) => {
     const p = playerId ? presence.get(playerId) : null;
     if (!p || !p.roomId) return ack?.({ ok: false });
+    releasePossessionOnExit(p.id); // 出房间先解除附身
     emitToRoom("playerLeave", { id: p.id });
     const outdoor = p.outdoor ?? { x: 128.5, y: 14, z: 128.5, rotY: 0 };
     presence.setRoom(p.id, null);
@@ -559,19 +581,55 @@ io.on("connection", (socket: Socket) => {
     if (!t) return;
     const aid = agentId && officeRoom.hasAgent(String(agentId)) ? String(agentId) : undefined;
     db.insertChatLog("player", p.name, p.userId ?? p.id, t.slice(0, 120));
+    // 附身中指定自己的员工说话：以员工名义发言，AI 不抢话
+    const speakingAsAgent = aid && officeRoom.controllerOf(aid) === p.id ? officeRoom.roster.agents.get(aid) : undefined;
+    const fromName = speakingAsAgent ? `${speakingAsAgent.name}(${p.name})` : p.name;
     // 老板的话进房间聊天流（其余成员；发送者客户端已本地回显，避免双条）
     for (const m of presence.playersInRoom(OFFICE_ROOM_ID)) {
       if (m.id === p.id) continue;
       toSocket(m.socketId, "chat", {
         id: randomUUID(),
         kind: "player",
-        from: p.name,
+        from: fromName,
         fromId: p.id,
         text: t.slice(0, 120),
         ts: Date.now(),
       });
     }
+    if (speakingAsAgent) return; // 附身发言到此为止（不触发老板台词链）
     void officeRoom.bossSpeak(p.id, t.slice(0, 120), aid, { id: p.id, x: p.x, z: p.z });
+  });
+
+  // ---------- 附身（以员工视角操控） ----------
+
+  socket.on("room:possess", ({ agentId }: { agentId: string }, ack?: (res: { ok: boolean; reason?: string }) => void) => {
+    const p = playerId ? presence.get(playerId) : null;
+    const fail = (reason: string) => ack?.({ ok: false, reason });
+    if (!p || p.roomId !== OFFICE_ROOM_ID) return fail("要进办公室才能附身");
+    if (!p.userId) return fail("游客不能附身（登录后雇佣自己的员工）");
+    const reason = officeRoom.possess(String(agentId ?? ""), { id: p.id, userId: p.userId, name: p.name });
+    if (reason) return fail(reason);
+    ack?.({ ok: true });
+  });
+
+  socket.on("room:release", (_payload: unknown, ack?: (res: { ok: boolean; reason?: string }) => void) => {
+    const p = playerId ? presence.get(playerId) : null;
+    if (!p) return ack?.({ ok: false, reason: "未加入世界" });
+    const reason = officeRoom.releaseByPlayer(p.id);
+    ack?.(reason ? { ok: false, reason } : { ok: true });
+  });
+
+  socket.on("room:agentMove", ({ agentId, x, z, rotY, anim }: { agentId: string; x: number; z: number; rotY: number; anim: "idle" | "walk" }) => {
+    const p = playerId ? presence.get(playerId) : null;
+    if (!p || p.roomId !== OFFICE_ROOM_ID) return;
+    const id = String(agentId ?? "");
+    if (!officeRoom.agentMove(id, p.id, Number(x), Number(z))) return;
+    if (typeof rotY !== "number" || !Number.isFinite(rotY)) return;
+    // 转发给房间其他成员（操控方本地已驱动自己的画面）
+    for (const m of presence.playersInRoom(OFFICE_ROOM_ID)) {
+      if (m.id === p.id) continue;
+      toSocket(m.socketId, "room:agentMove", { agentId: id, x, z, rotY, anim: anim === "walk" ? "walk" : "idle" });
+    }
   });
 });
 

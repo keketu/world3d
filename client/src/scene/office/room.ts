@@ -1,7 +1,7 @@
 // Office 房间室内几何：office3d 办公室的 world3d 低模移植
 // 静态物合并为两块网格：不发光主体（Lambert 顶点色）+ 发光件（屏幕/窗/灯罩，Basic 顶点色）
 import * as THREE from "three";
-import { BOSS_SPOT, EMPLOYEE_DESKS, MEETING, PM_SPOT, WHITEBOARD, ROOM } from "@world3d/shared";
+import { BOSS_SPOT, EMPLOYEE_DESKS, EXTRA_DESKS, MEETING, PM_SPOT, WHITEBOARD, ROOM } from "@world3d/shared";
 import { paintAndMerge } from "../../engine/props";
 
 // 暖纸色 + 樱花粉调色板，对齐世界审美
@@ -156,8 +156,8 @@ export function buildOfficeRoom(): THREE.Group {
     parts.push(box(0.06, 1.2, 0.08, C.windowFrame, wx, 1.7, -D / 2 + 0.22));
   }
 
-  // ---- 员工/PM 工位 + 椅子 ----
-  for (const d of EMPLOYEE_DESKS) {
+  // ---- 员工/PM 工位 + 椅子（EXTRA_DESKS = 玩家雇佣的个人 agent 加座） ----
+  for (const d of [...EMPLOYEE_DESKS, ...EXTRA_DESKS]) {
     workstation(parts, d.desk.x, d.desk.z, d.desk.rotY);
     chair(parts, d.seat.x, d.seat.z, d.seat.rotY);
   }

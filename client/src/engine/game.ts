@@ -147,6 +147,8 @@ export function startGame(container: HTMLElement): GameHandle {
     if (e.code === "KeyE") {
       const st = useWorld.getState();
       if (st.roomPrompt) roomHost.doorAction();
+      else if (st.possessAgent) roomHost.release(); // 附身中：E = 退出附身
+      else if (st.nearOwnAgent) roomHost.possessNearby(); // 面前有自己的空闲员工：附身
       else if (st.nearAgent) roomHost.talkToNearby();
       else if (st.inRoom) st.toggleRoomPanel();
     }
@@ -680,7 +682,8 @@ export function startGame(container: HTMLElement): GameHandle {
       moveTimer += dt;
       if (moveTimer >= 0.1) {
         moveTimer = 0;
-        sendMove({ x: self.x, y: self.y, z: self.z, rotY: self.rotY, anim: self.anim });
+        // 附身中：自己的身体原地不动（房间内由 roomHost 转发所操控员工的移动）
+        if (!roomHost.possessedId) sendMove({ x: self.x, y: self.y, z: self.z, rotY: self.rotY, anim: self.anim });
       }
     }
 
@@ -702,11 +705,13 @@ export function startGame(container: HTMLElement): GameHandle {
       }
     }
 
-    // 3. 自身 avatar
+    // 3. 自身 avatar（附身中隐身：镜头里只有被操控的员工身体）
+    const possessing = !!roomHost.possessedId;
     selfAvatar.group.position.set(self.x, self.y, self.z);
     selfAvatar.group.rotation.y = self.rotY;
-    animateAvatar(selfAvatar, self.anim, time);
-    setLabel("tag-self", st.selfName || "我", self.x, self.y + 1.4, self.z, "nameTag self");
+    animateAvatar(selfAvatar, possessing ? "idle" : self.anim, time);
+    if (!possessing) setLabel("tag-self", st.selfName || "我", self.x, self.y + 1.4, self.z, "nameTag self");
+    else removeLabel("tag-self");
 
     // 4. 远端玩家插值
     for (const [, r] of clientWorld.remotes) {
@@ -794,7 +799,7 @@ export function startGame(container: HTMLElement): GameHandle {
       camera.position.copy(camCur);
       camera.lookAt(camTarget);
     }
-    selfAvatar.group.visible = viewMode === "third";
+    selfAvatar.group.visible = viewMode === "third" && !roomHost.possessedId;
 
     // 8. 标签投影
     const w = container.clientWidth;

@@ -56,6 +56,54 @@ export const EMPLOYEE_DESKS: DeskSpot[] = [
   },
 ];
 
+// 个人 agent 加座：北排 2 席 + 南排 4 席（玩家雇佣的员工坐这里，固定 5 员工满了才用）
+export const EXTRA_DESKS: DeskSpot[] = [
+  {
+    id: "desk-x1",
+    desk: { x: 2.25, z: -2.2, rotY: 0 },
+    seat: { x: 2.25, z: -1.35, rotY: Math.PI },
+    standPoint: { x: 2.25, z: -0.35, rotY: Math.PI },
+  },
+  {
+    id: "desk-x2",
+    desk: { x: 11.25, z: -2.2, rotY: 0 },
+    seat: { x: 11.25, z: -1.35, rotY: Math.PI },
+    standPoint: { x: 11.25, z: -0.35, rotY: Math.PI },
+  },
+  {
+    id: "desk-x3",
+    desk: { x: 2.25, z: 2.2, rotY: Math.PI },
+    seat: { x: 2.25, z: 3.05, rotY: 0 },
+    standPoint: { x: 2.25, z: 4.0, rotY: 0 },
+  },
+  {
+    id: "desk-x4",
+    desk: { x: 6.75, z: 2.2, rotY: Math.PI },
+    seat: { x: 6.75, z: 3.05, rotY: 0 },
+    standPoint: { x: 6.75, z: 4.0, rotY: 0 },
+  },
+  {
+    id: "desk-x5",
+    desk: { x: 11.25, z: 2.2, rotY: Math.PI },
+    seat: { x: 11.25, z: 3.05, rotY: 0 },
+    standPoint: { x: 11.25, z: 4.0, rotY: 0 },
+  },
+  {
+    id: "desk-x6",
+    desk: { x: -10.75, z: 2.2, rotY: Math.PI },
+    seat: { x: -10.75, z: 3.05, rotY: 0 },
+    standPoint: { x: -10.75, z: 4.0, rotY: 0 },
+  },
+];
+
+// 个人 agent（我的员工）限制
+export const PERSONAL_ROOM_CAP = EXTRA_DESKS.length; // 房间内个人员工总席位（6）
+export const AGENTS_PER_USER = 4; // 每个账号最多雇佣数
+/** 个人员工可选角色（不含老板/PM） */
+export const PERSONAL_ROLES: AgentRole[] = ["product", "design", "frontend", "backend", "qa"];
+/** 个人员工代表色（colorIdx 索引） */
+export const PERSONAL_PALETTE = ["#e8618c", "#5b8def", "#3aa981", "#d08a2e", "#9a6ee2", "#38a2b5"];
+
 // PM 工位
 export const PM_SPOT: DeskSpot = {
   id: "desk-pm",
@@ -103,7 +151,7 @@ function deskRect(cx: number, cz: number): [number, number, number, number] {
 }
 
 export const OBSTACLES: Array<[number, number, number, number]> = [
-  ...[...EMPLOYEE_DESKS, PM_SPOT].map((d) => deskRect(d.desk.x, d.desk.z)),
+  ...[...EMPLOYEE_DESKS, ...EXTRA_DESKS, PM_SPOT].map((d) => deskRect(d.desk.x, d.desk.z)),
   [-11.3, -6.7, -8.7, -5.7], // 老板大桌
   [9.5 - 1.7, -5.5 - 1.7, 9.5 + 1.7, -5.5 + 1.7], // 会议圆桌
   [10.4, 4.6, 12.2, 6.4], // 咖啡吧台
@@ -135,6 +183,14 @@ export interface AgentInfo {
   activity: AgentActivity;
   currentTask?: string;
   currentProjectId?: string;
+  /** 个人 agent 专属：雇佣者账号 id（固定员工无此字段） */
+  ownerId?: string;
+  /** 雇主昵称（展示用） */
+  ownerName?: string;
+  /** 正被哪位玩家附身操控（playerId；null/未定义 = AI 自主） */
+  controlledBy?: string | null;
+  /** 工位 id（客户端落座定位用） */
+  deskId?: string;
 }
 
 export interface ProjectInfo {
@@ -216,6 +272,17 @@ export interface ArrivedEvent {
   orderId: string;
 }
 
+// ---------- 附身（以员工视角操控） ----------
+
+/** 附身中的 agent 实时位置（操控方 → 服务端 → 房间其他成员） */
+export interface AgentMoveEvent {
+  agentId: string;
+  x: number;
+  z: number;
+  rotY: number;
+  anim: "idle" | "walk";
+}
+
 // ---------- 房间 socket 事件（world3d 连接上的 room:* 事件族） ----------
 
 /** 服务端 → 进入者个人：房间全量状态 */
@@ -243,4 +310,6 @@ export type { PlayerInfo };
 // room:hello / room:playerJoin / room:playerLeave / room:agent(updated)
 // room:order / room:dialogue / room:project / room:task / room:progress
 // room:notify / room:meeting(started|ended)
+// room:agentRemoved（个人 agent 被解雇移出房间）/ room:agentMove（附身中的位置同步）
 // 客户端 → 服务端：room:join / room:leave / room:arrived / room:assign / room:say
+//                room:possess / room:release / room:agentMove（附身操控）

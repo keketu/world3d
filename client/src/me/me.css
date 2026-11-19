@@ -827,3 +827,144 @@
     margin-left: 0;
   }
 }
+
+/* ---------- 🧑‍💼 我的员工 ---------- */
+
+.agentList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agentRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--cream-2);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.agentDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.agentBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.agentName {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.agentRole {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.agentBadge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(127, 185, 138, 0.2);
+  color: var(--matcha-deep);
+}
+
+.agentBadge.wait {
+  background: rgba(240, 168, 92, 0.18);
+  color: var(--mikan-deep);
+}
+
+.agentBadge.live {
+  background: rgba(154, 110, 226, 0.18);
+  color: #6d55b4;
+}
+
+.agentSub {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentOps {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.agentOp {
+  border: 1.5px solid var(--biscuit);
+  background: #fffdf9;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.agentOp:hover:not(:disabled) {
+  border-color: var(--sakura);
+  color: var(--sakura-deep);
+}
+
+.agentOp.danger {
+  color: #a85050;
+  border-color: rgba(194, 91, 91, 0.35);
+}
+
+.agentOp:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.agentEdit {
+  margin-top: 12px;
+  border: 2px dashed var(--biscuit);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 253, 249, 0.6);
+}
+
+.agentSwatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.agentSwatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+.agentSwatch:hover {
+  transform: scale(1.12);
+}
+
+.agentSwatch.on {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px #fff inset;
+}
