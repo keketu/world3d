@@ -953,6 +953,8 @@ input:focus-visible {
   padding: 3px 12px;
   border-radius: 999px;
   box-shadow: 0 3px 8px rgba(122, 86, 61, 0.16);
+  pointer-events: auto; /* 点名牌 = 走到 TA 面前（委托见 game.ts） */
+  cursor: pointer;
 }
 
 .nameTag.self {
@@ -1489,23 +1491,84 @@ input:focus-visible {
   }
 }
 
-/* 展开状态（触摸设备）：奶油底全屏面板 */
+/* 展开状态（触摸设备）：全屏聊天页；高度跟 visualViewport（--vvh）→ 键盘弹起记录不被遮 */
 .chatPanel.open {
   display: flex;
   flex-direction: column;
   position: fixed;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
+  inset: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: auto;
   width: auto;
-  height: 46vh;
+  height: var(--vvh, 100dvh);
   background: var(--cream-1);
-  border: 2px solid var(--biscuit);
-  border-radius: var(--radius-card);
-  box-shadow: var(--mochi), 0 20px 44px rgba(74, 52, 40, 0.24);
-  padding: 0 12px 12px;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0 12px calc(10px + env(safe-area-inset-bottom, 0px));
   z-index: 30;
-  animation: sheetUp 300ms var(--bounce);
+  animation: sheetUp 260ms var(--bounce);
+}
+
+.chatPanel.open .chatList {
+  flex: 1;
+  max-height: none;
+}
+
+.chatPanel.open .chatHead {
+  padding: 14px 12px 10px;
+  font-size: 15px;
+}
+
+.chatPanel.open .chatInput {
+  font-size: 16px; /* 防 iOS 聚焦自动放大 */
+}
+
+/* 手机常驻透明消息流（左上角）：别人发言立刻可见，点击展开全屏聊天 */
+.chatTicker {
+  position: absolute;
+  top: 58px;
+  left: 10px;
+  max-width: 72%;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  background: rgba(255, 253, 247, 0.42);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  cursor: pointer;
+}
+
+.tickerRow {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tickerRow b {
+  font-weight: 800;
+  color: var(--sakura-deep);
+}
+
+.tickerRow.kind-ai b {
+  color: var(--berry);
+}
+
+.tickerRow.kind-player b {
+  color: var(--ink);
+}
+
+.tickerRow.empty {
+  color: var(--ink-faint);
 }
 
 @keyframes sheetUp {
@@ -1672,10 +1735,7 @@ input:focus-visible {
   .officePanel {
     bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   }
-  /* 聊天全屏面板避开手势条 */
-  .chatPanel.open {
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  }
+  /* 聊天已是全屏面板（--vvh 自适应键盘），无需再避手势条 */
   /* 设置面板：右侧小抽屉 → 底部大抽屉（好点、好滑） */
   .setPanel {
     top: auto;

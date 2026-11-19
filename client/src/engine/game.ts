@@ -1,6 +1,6 @@
 // 游戏引擎：低模世界渲染循环、本地玩家、道具交互、标签系统、远端玩家
 import * as THREE from "three";
-import { HOTBAR_PROPS, PlayerInfo, WorldObject, WATER_LEVEL } from "@world3d/shared";
+import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, WATER_LEVEL } from "@world3d/shared";
 import { clientWorld } from "./world";
 import { buildTerrain, buildWater } from "./terrain";
 import { buildProp } from "./props";
@@ -95,6 +95,13 @@ export function startGame(container: HTMLElement): GameHandle {
   const popAnims = new Map<string, number>();
   const propGroup = new THREE.Group();
   scene.add(propGroup);
+  /** 大道具（房屋/办公楼）世界 AABB：相机避让 + 点击外推，防穿模透视 */
+  const camBoxes = new Map<string, THREE.Box3>();
+
+  function rebuildCamBox(id: string, mesh: THREE.Object3D) {
+    mesh.updateWorldMatrix(true, true);
+    camBoxes.set(id, new THREE.Box3().setFromObject(mesh));
+  }
 
   function spawnProp(o: WorldObject, animate: boolean) {
     const { mesh, labelY } = buildProp(o);
@@ -103,8 +110,10 @@ export function startGame(container: HTMLElement): GameHandle {
     mesh.rotation.y = o.rotY;
     mesh.scale.setScalar(animate ? 0.01 : o.scale || 1);
     propGroup.add(mesh);
+    mesh.userData.objectId = o.id; // 射线命中道具后由此取 id（拆除/走近大建筑都靠它）
     propMeshes.set(o.id, { mesh, labelY, creator: o.creatorName, variant: o.variant, kind: o.kind });
     if (animate) popAnims.set(o.id, 0);
+    if ((o.kind === "house" || o.kind === "office") && !animate) rebuildCamBox(o.id, mesh);
     // 办公楼：计算门口世界坐标（进门触发点）
     if (o.kind === "office") {
       const doorDist = Number(o.params?.doorDist ?? 4.6);
@@ -119,6 +128,7 @@ export function startGame(container: HTMLElement): GameHandle {
       propGroup.remove(pm.mesh);
       propMeshes.delete(id);
     }
+    camBoxes.delete(id);
   };
 
   // ---------- 本地玩家 ----------
@@ -187,6 +197,8 @@ export function startGame(container: HTMLElement): GameHandle {
   let moveTarget: { x: number; z: number } | null = null; // 户外：直线走向目标点
   let roomPath: Array<{ x: number; z: number }> | null = null; // 房间：A* 路径
   let roomWp = 1; // 下一个路径点索引（0 是起点）
+  /** 点击人物：走到面前后的对话对象（到达后自动开聊） */
+  let approach: PersonHit | null = null;
 
   function setPlayerPath(x: number, z: number) {
     if (roomHost.active) {
@@ -197,6 +209,54 @@ export function startGame(container: HTMLElement): GameHandle {
       moveTarget = { x, z };
       roomPath = null;
     }
+  }
+
+  function personPosOf(p: PersonHit): { x: number; z: number } | null {
+    if (p.kind === "agent") return roomHost.agentPos(p.id);
+    const r = clientWorld.remotes.get(p.id);
+    return r ? { x: r.target.x, z: r.target.z } : null;
+  }
+
+  /** 点到人物：走到 TA 面前停下（agent 到达后自动开聊） */
+  function approachPerson(p: PersonHit) {
+    const tgt = personPosOf(p);
+    if (!tgt) return;
+    const d = Math.hypot(tgt.x - self.x, tgt.z - self.z);
+    if (d <= 2.3) {
+      // 已经在面前：直接开聊
+      if (p.kind === "agent" && roomHost.active) roomHost.approachTalk(p.id);
+      return;
+    }
+    let tx: number;
+    let tz: number;
+    if (roomHost.active) {
+      // 工位四周有桌椅：取 agent 周围可落脚、且离自己最近的点（1.7m 一圈不够就 2.1m）
+      let best: { x: number; z: number } | null = null;
+      let bd = Infinity;
+      for (const r of [1.7, 2.1]) {
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const px = tgt.x + Math.cos(a) * r;
+          const pz = tgt.z + Math.sin(a) * r;
+          if (roomHost.movementBlocked(px, pz)) continue;
+          const dd = Math.hypot(px - self.x, pz - self.z);
+          if (dd < bd) {
+            bd = dd;
+            best = { x: px, z: pz };
+          }
+        }
+        if (best) break;
+      }
+      if (!best) return; // 四周全堵（比如正被围着开会）：不动
+      tx = best.x;
+      tz = best.z;
+    } else {
+      const stop = 1.7;
+      tx = tgt.x + ((self.x - tgt.x) / d) * stop;
+      tz = tgt.z + ((self.z - tgt.z) / d) * stop;
+    }
+    setPlayerPath(tx, tz);
+    approach = p;
   }
 
   interface InEv {
@@ -315,14 +375,31 @@ export function startGame(container: HTMLElement): GameHandle {
       mouseNDC.y = -(p.ly / container.clientHeight) * 2 + 1;
       hoverTarget = raycastWorld();
       if (p.button === 2) removeAction();
-      else if (roomHost.active) {
+      else if (hoverTarget?.person) {
+        // 点到人物：走到 TA 面前对话（不再穿透跑到身后）
+        approachPerson(hoverTarget.person);
+      } else if (roomHost.active) {
         // 房间内：点击 = 行走（A* 自动绕开桌椅）
         if (hoverTarget) setPlayerPath(hoverTarget.point.x, hoverTarget.point.z);
       } else {
         const sel = HOTBAR_PROPS[useWorld.getState().hotbarIndex];
         if (sel && sel.kind === "hand") {
           // 空手：点击地面行走
-          if (hoverTarget) moveTarget = { x: hoverTarget.point.x, z: hoverTarget.point.z };
+          if (hoverTarget) {
+            const o = hoverTarget.objectId ? clientWorld.objects.get(hoverTarget.objectId) : null;
+            const R = o ? (PROP_KINDS[o.kind]?.collideR ?? 0) : 0;
+            if (R >= 2) {
+              // 点到大建筑（房屋/办公楼）：目标外推到碰撞圈外一点，避免顶着墙卡死
+              const dx = self.x - o!.x;
+              const dz = self.z - o!.z;
+              const dd = Math.hypot(dx, dz) || 1;
+              const stop = R + 1.4;
+              if (dd > stop) setPlayerPath(o!.x + (dx / dd) * stop, o!.z + (dz / dd) * stop);
+            } else {
+              moveTarget = { x: hoverTarget.point.x, z: hoverTarget.point.z };
+              roomPath = null;
+            }
+          }
         } else {
           clickAction();
         }
@@ -371,32 +448,60 @@ export function startGame(container: HTMLElement): GameHandle {
     if (e.pointerType === "mouse") mouseInside = false;
   });
 
-  // ---------- 射线：地形 + 道具 ----------
+  // ---------- 射线：人物（玩家/agent）+ 地形 + 道具 ----------
   const raycaster = new THREE.Raycaster();
+
+  interface PersonHit {
+    id: string;
+    kind: "player" | "agent";
+  }
 
   interface HitResult {
     ground: boolean;
     point: THREE.Vector3;
     objectId?: string;
+    person?: PersonHit;
+  }
+
+  /** 命中的子 mesh 沿 parent 链找人物标记（rig 根上有 userData.personId） */
+  function personOf(obj: THREE.Object3D | null): PersonHit | undefined {
+    let o: THREE.Object3D | null = obj;
+    while (o) {
+      if (o.userData?.personId) return { id: o.userData.personId as string, kind: o.userData.personKind };
+      o = o.parent;
+    }
+    return undefined;
   }
 
   function raycastWorld(): HitResult | null {
+    raycaster.setFromCamera(mouseNDC, camera);
+    // 人物（远端玩家 + 房间 agent）优先参与比距，点人物不再穿透点到身后地面
+    const personRoots: THREE.Object3D[] = [];
+    for (const [, r] of clientWorld.remotes) personRoots.push((r.group as Avatar).group);
+    for (const m of roomHost.personMeshes()) personRoots.push(m);
+    raycaster.far = roomHost.active ? 60 : 32;
+    const personHits = personRoots.length ? raycaster.intersectObjects(personRoots, true) : [];
+    const personHit = personHits.find((h) => personOf(h.object)) ?? null;
+    const personInfo = personHit ? personOf(personHit.object) : undefined;
     // 房间模式：射线只打房间实体（户外地形在房间区域的高度不可用）
     if (roomHost.active && roomHost.solidMesh) {
-      raycaster.setFromCamera(mouseNDC, camera);
-      raycaster.far = 60;
       const hits = raycaster.intersectObject(roomHost.solidMesh, false);
-      if (hits[0]) return { ground: true, point: hits[0].point };
+      const solid = hits[0];
+      if (personHit && (!solid || personHit.distance < solid.distance)) {
+        return { ground: true, point: personHit.point, person: personInfo };
+      }
+      if (solid) return { ground: true, point: solid.point };
       return null;
     }
-    raycaster.setFromCamera(mouseNDC, camera);
-    raycaster.far = 32;
     const propMeshList: THREE.Object3D[] = [];
     for (const [, pm] of propMeshes) if (pm.mesh.visible) propMeshList.push(pm.mesh);
     const propHits = raycaster.intersectObjects(propMeshList, false);
     const groundHits = terrainMesh ? raycaster.intersectObject(terrainMesh, false) : [];
     const groundHit = groundHits[0];
     const propHit = propHits[0];
+    if (personHit && personHit.distance < (propHit?.distance ?? Infinity) && personHit.distance < (groundHit?.distance ?? Infinity)) {
+      return { ground: true, point: personHit.point, person: personInfo };
+    }
     if (propHit && (!groundHit || propHit.distance < groundHit.distance)) {
       return { ground: false, point: propHit.point, objectId: propHit.object.userData.objectId as string };
     }
@@ -450,6 +555,7 @@ export function startGame(container: HTMLElement): GameHandle {
     let l = labels.get(id);
     if (!l) {
       const el = document.createElement("div");
+      el.dataset.labelId = id; // 名牌点击走近：委托在 labelLayer 上按 labelId 分发
       labelLayer.appendChild(el);
       l = { el, wx, wy, wz, maxDist };
       labels.set(id, l);
@@ -461,6 +567,15 @@ export function startGame(container: HTMLElement): GameHandle {
     if (l.el.innerHTML !== html) l.el.innerHTML = html;
     l.el.className = `gameLabel ${cls}`;
   }
+
+  // 点名牌（agent / 其他玩家）= 走到 TA 面前：手机上名牌是天然的大号点击热区
+  labelLayer.addEventListener("pointerdown", (e) => {
+    const el = (e.target as HTMLElement).closest(".nameTag") as HTMLElement | null;
+    const lid = el?.dataset.labelId ?? "";
+    if (!lid || lid === "tag-self") return;
+    if (lid.startsWith("agent-")) approachPerson({ id: lid.slice(6), kind: "agent" });
+    else if (lid.startsWith("tag-")) approachPerson({ id: lid.slice(4), kind: "player" });
+  });
 
   function removeLabel(id: string) {
     const l = labels.get(id);
@@ -520,6 +635,8 @@ export function startGame(container: HTMLElement): GameHandle {
     // 防御：任何路径都不给自己建远程分身
     if (p.id === useWorld.getState().selfId) return;
     const av = createAvatar(p.name, p.color);
+    av.group.userData.personId = p.id; // 点击人物：射线命中后沿 parent 链找到 id
+    av.group.userData.personKind = "player";
     av.group.position.set(p.x, p.y, p.z);
     scene.add(av.group);
     clientWorld.remotes.set(p.id, {
@@ -602,6 +719,17 @@ export function startGame(container: HTMLElement): GameHandle {
         }
       }
 
+      // ---------- 点击人物：走到面前后自动开聊 ----------
+      if (approach) {
+        const tgt = personPosOf(approach);
+        const d = tgt ? Math.hypot(tgt.x - self.x, tgt.z - self.z) : Infinity;
+        const arrived = (!moveTarget && !roomPath) || d < 2.3;
+        if (!tgt || arrived) {
+          if (approach.kind === "agent" && roomHost.active && d < 2.8) roomHost.approachTalk(approach.id);
+          approach = null;
+        }
+      }
+
       // ---------- 鼠标横向移动转向（不需按住） ----------
       // 自由转向：鼠标横向滑动即转视角；滑到屏幕左右边缘时持续缓慢转
       if (useWorld.getState().settings.freeLook && !roomHost.active && mouseInside) {
@@ -630,6 +758,7 @@ export function startGame(container: HTMLElement): GameHandle {
         if (ix !== 0 || iz !== 0) {
           moveTarget = null; // 键盘接管，取消点击目标
           roomPath = null; // 房内也放弃 A* 路径
+          approach = null; // 也放弃走向人物的意图
           // 相机朝向：前 = 相机正前方（camYaw 决定）
           const len = Math.hypot(ix, iz);
           const fx = ix / len;
@@ -698,6 +827,7 @@ export function startGame(container: HTMLElement): GameHandle {
       if (t >= 1) {
         pm.mesh.scale.setScalar(1);
         popAnims.delete(id);
+        if (pm.kind === "house" || pm.kind === "office") rebuildCamBox(id, pm.mesh); // 弹出动画结束才有真实尺寸
       } else {
         const s = 1 - Math.pow(1 - t, 3);
         pm.mesh.scale.setScalar(s);
@@ -783,13 +913,24 @@ export function startGame(container: HTMLElement): GameHandle {
       );
     } else {
       const [dMin, dMax] = roomHost.cameraDistRange();
-      const effDist = Math.max(dMin, Math.min(dMax, camDist));
-      const camOff = new THREE.Vector3(
+      let effDist = Math.max(dMin, Math.min(dMax, camDist));
+      const camDir = new THREE.Vector3(
         Math.sin(camYaw) * Math.cos(camPitch),
         Math.sin(camPitch) + 0.22,
         Math.cos(camYaw) * Math.cos(camPitch)
-      ).multiplyScalar(effDist);
-      const desired = camTarget.clone().add(camOff);
+      ).normalize();
+      // 视线穿过房屋/办公楼时把相机拉到建筑前，避免相机进楼穿模透视
+      if (camBoxes.size && !roomHost.active) {
+        const ray = new THREE.Ray(camTarget, camDir);
+        const hitV = new THREE.Vector3();
+        for (const [, box] of camBoxes) {
+          if (ray.intersectBox(box, hitV)) {
+            const d = hitV.distanceTo(camTarget);
+            if (d < effDist) effDist = Math.max(1.6, d - 0.4);
+          }
+        }
+      }
+      const desired = camTarget.clone().addScaledVector(camDir, effDist);
       if (!roomHost.active) {
         // 户外：相机不钻地；房间内地面 y=0，不适用地形钳制
         const groundY = clientWorld.surfaceY(desired.x, desired.z) + 0.8;
@@ -863,11 +1004,26 @@ export function startGame(container: HTMLElement): GameHandle {
   (window as unknown as Record<string, unknown>).__world3d = {
     clientWorld,
     scene,
+    camera,
+    camBoxes,
     propMeshes,
     pointers,
     viewMode: () => viewMode,
     selfPos: () => ({ ...self }),
+    camDist: () => camDist,
     camYaw: () => camYaw,
+    setCamYaw: (y: number) => {
+      camYaw = y;
+    },
+    setCamDist: (d: number) => {
+      camDist = d;
+    },
+    raycastAt: (sx: number, sy: number) => {
+      mouseNDC.x = (sx / container.clientWidth) * 2 - 1;
+      mouseNDC.y = -(sy / container.clientHeight) * 2 + 1;
+      const r = raycastWorld();
+      return r ? { person: r.person ?? null, obj: r.objectId ?? null, ground: r.ground, p: [Math.round(r.point.x * 10) / 10, Math.round(r.point.z * 10) / 10] } : null;
+    },
     teleport: (x: number, z: number, y?: number) => {
       self.x = x;
       self.z = z;

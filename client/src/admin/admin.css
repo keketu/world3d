@@ -1779,14 +1779,20 @@
 }
 
 @media (max-width: 900px) {
-  .admShell {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "top"
-      "main";
+  /* 解锁页面原生滚动：全局 index.css 把 html/body 锁了 overflow:hidden（世界页 3D 需要），
+     触屏浏览器上「100vh 网格 + 内容区内部滚动」经常滚不动（iOS/微信）——改自然文档流 + sticky 顶栏 */
+  html:has(.admShell),
+  html:has(.admShell) body,
+  html:has(.admShell) #root {
+    overflow: visible;
+    height: auto;
   }
-  .admShell.collapsed {
-    grid-template-columns: 1fr;
+  .admShell {
+    display: block; /* 弃用网格布局：块级自然流，内容撑开 body 原生滚动 */
+    min-height: 100dvh;
+  }
+  .admContent {
+    overflow-y: visible;
   }
   .only-mobile {
     display: inline-flex;
@@ -1861,9 +1867,6 @@
 
 /* 手机（≤700px）：顶栏两行 / 指标卡两列 / 详情抽屉全宽 / 触摸目标放大 */
 @media (max-width: 700px) {
-  .admShell {
-    grid-template-rows: auto 1fr;
-  }
   /* 顶栏：第一行 = 菜单+品牌+在线+头像，第二行 = 全宽搜索框 */
   .admTopbar {
     flex-wrap: wrap;

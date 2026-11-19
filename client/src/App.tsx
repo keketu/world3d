@@ -27,6 +27,23 @@ function Toaster() {
   );
 }
 
+/** 手机常驻透明消息流：左上角实时显示最近几条，别人发消息不用点开就能看到；点击展开全屏聊天 */
+function ChatTicker({ onOpen }: { onOpen: () => void }) {
+  const chat = useWorld((s) => s.chat);
+  const recent = chat.filter((m) => m.kind !== "system").slice(-4);
+  return (
+    <div className="chatTicker" onClick={onOpen} title="打开聊天">
+      {recent.length === 0 && <div className="tickerRow empty">💬 点这里聊天</div>}
+      {recent.map((m) => (
+        <div key={m.id} className={`tickerRow kind-${m.kind}`}>
+          <b>{m.from}：</b>
+          <span>{m.text.length > 36 ? m.text.slice(0, 36) + "…" : m.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boolean }) {
   const chat = useWorld((s) => s.chat);
   const [text, setText] = useState("");
@@ -251,6 +268,20 @@ export default function App() {
     connect();
   }, []);
 
+  // 手机软键盘适配：visualViewport 高度写进 CSS 变量，全屏聊天用它定高 → 键盘弹起面板缩到键盘上方，记录不被遮
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const apply = () => document.documentElement.style.setProperty("--vvh", `${vv.height}px`);
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+    };
+  }, []);
+
   const handleJoin = (name: string) => {
     // 先同步启动引擎，再 join（ack 回调里需要句柄设置出生点）
     if (containerRef.current && !gameRef.current) {
@@ -282,9 +313,7 @@ export default function App() {
         <div className="ui">
           <TopBar onSettings={() => setSettingsOpen(true)} />
           {(!isTouch || chatOpen) && <ChatPanel isTouch={isTouch} onClose={() => setChatOpen(false)} />}
-          {isTouch && chatOpen && (
-            <div className="chatBackdrop" onClick={() => setChatOpen(false)} />
-          )}
+          {isTouch && !chatOpen && <ChatTicker onOpen={() => setChatOpen(true)} />}
           {isTouch && !chatOpen && (
             <button className="chatFab" onClick={() => setChatOpen(true)} title="聊天 / AI 施工队">
               💬

@@ -253,12 +253,34 @@ class RoomHost {
     let entry = this.rigs.get(info.id);
     if (!entry) {
       const rig = createOfficeAgent(info);
+      rig.root.userData.personId = info.id; // 点击人物：射线命中后沿 parent 链找到 id
+      rig.root.userData.personKind = "agent";
       this.rigRoot.add(rig.root);
       entry = { rig, info };
       this.rigs.set(info.id, entry);
     } else {
       entry.info = info;
     }
+  }
+
+  /** 点击人物射线检测用：房间内 agent 的根节点（自己附身中的身体不算） */
+  personMeshes(): THREE.Object3D[] {
+    if (!this.active) return [];
+    const out: THREE.Object3D[] = [];
+    for (const [id, e] of this.rigs) if (id !== this.possessedId) out.push(e.rig.root);
+    return out;
+  }
+
+  /** agent 当前位置（A* 状态机里的坐标） */
+  agentPos(id: string): { x: number; z: number } | null {
+    const s = charSystem.states.get(id);
+    return s ? { x: s.x, z: s.z } : null;
+  }
+
+  /** 点击人物走到面前后的动作：和该 agent 开聊 */
+  approachTalk(agentId: string) {
+    sendRoomTalkTo(agentId);
+    useWorld.getState().setLastTalkAgent({ id: agentId, until: Date.now() + 45_000 });
   }
 
   private removeRig(id: string) {
