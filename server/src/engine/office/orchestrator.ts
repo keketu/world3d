@@ -12,7 +12,7 @@ import {
 import { OfficeRoster, AgentRuntime } from "./roster.js";
 import { Brain, PlannedTask } from "./brain.js";
 import { ScriptedBrain } from "./scriptedBrain.js";
-import { AGENT_GREET, AGENT_BUSY, AGENT_REPLY, BOSS_APPROACH, AMBIENT_CHAT, pick } from "./scenarios.js";
+import { AGENT_GREET, AGENT_BUSY, BOSS_APPROACH, AMBIENT_CHAT, agentReplyFor, pick } from "./scenarios.js";
 
 /** 编排器所需的持久化接口（由 world3d Db 实现 office 表） */
 export interface OfficeDb {
@@ -87,6 +87,11 @@ export class Orchestrator {
 
   private emit(ev: string, payload: unknown) {
     this.io?.emit(ev, payload);
+  }
+
+  /** agent 对老板说的话同步进房间聊天流（index.ts 把 "chat" 事件映射回客户端 chat 频道） */
+  private emitToChat(from: string, text: string) {
+    this.emit("chat", { id: randomUUID(), kind: "ai", from, text, ts: Date.now() });
   }
 
   private issueOrder(order: AgentOrder): Promise<void> {
@@ -201,28 +206,30 @@ export class Orchestrator {
     if (wasIdle) this.world.setActivity(agentId, "idle");
   }
 
-  /** 老板走到某 agent 面前发起对话（E 键触发） */
+  /** 老板走到某 agent 面前发起对话（E 键触发）——问候同时落进房间聊天流 */
   async talkTo(agentId: string, player: { id: string; x: number; z: number }) {
     const a = this.world.get(agentId);
     if (a.role === "boss") return;
     this.partners.set(player.id, { agentId, until: Date.now() + 45_000 });
     await this.face(a, { x: player.x, z: player.z });
-    if (a.activity === "working") {
-      await this.sayCasual(a.id, pick(AGENT_BUSY(a.currentTask ?? "手头的活")));
-    } else if (a.activity === "idle") {
-      await this.sayCasual(a.id, pick(AGENT_GREET[a.role] ?? ["老板好，有什么吩咐？"]));
-    } else {
-      await this.sayCasual(a.id, "稍等哈老板，手头这一步一收尾就找您聊～");
-    }
+    const line =
+      a.activity === "working"
+        ? pick(AGENT_BUSY(a.currentTask ?? "手头的活"))
+        : a.activity === "idle"
+          ? pick(AGENT_GREET[a.role] ?? ["老板好，有什么吩咐？"])
+          : "稍等哈老板，手头这一步一收尾就找您聊～";
+    this.emitToChat(a.name, line);
+    await this.sayCasual(a.id, line);
   }
 
-  /** 老板回话：优先回给最近聊过的 agent，否则 PM 出场（bossChatter） */
-  async replyTo(agentId: string, text: string) {
+  /** 老板回话：面朝说话人，按老板说的内容应答（应答同时进房间聊天流） */
+  async replyTo(agentId: string, text: string, speaker?: { id: string; x: number; z: number }) {
     const a = this.world.get(agentId);
-    const player = this.playerProvider?.().find(() => true);
+    const player = speaker ?? this.playerProvider?.().find(() => true);
     if (player) await this.face(a, { x: player.x, z: player.z });
-    await this.sayCasual(a.id, pick(AGENT_REPLY));
-    void text;
+    const line = agentReplyFor({ name: a.name, role: a.role, currentTask: a.currentTask }, text);
+    this.emitToChat(a.name, line);
+    await this.sayCasual(a.id, line);
   }
 
   /** agent 主动走近老板搭话（环境行为） */
@@ -265,13 +272,21 @@ export class Orchestrator {
     this.pumpQueue();
   }
 
-  /** 老板说话：45s 内聊过的 agent 优先接话，否则 PM 出场 */
-  async bossSpeak(playerId: string, text: string, agentId?: string) {
+  /** 老板说话：指定/身边的 agent 优先接话（排队串行，免得话叠话），否则 PM 出场 */
+  private sayChain: Promise<void> = Promise.resolve();
+  async bossSpeak(playerId: string, text: string, agentId?: string, speaker?: { id: string; x: number; z: number }) {
+    const job = () => this.doBossSpeak(playerId, text, agentId, speaker);
+    const p = this.sayChain.then(job, job);
+    this.sayChain = p.catch(() => {});
+    await p;
+  }
+
+  private async doBossSpeak(playerId: string, text: string, agentId?: string, speaker?: { id: string; x: number; z: number }) {
     const partner = this.partners.get(playerId);
     const target = agentId ?? (partner && partner.until > Date.now() ? partner.agentId : null);
     if (target && this.world.agents.has(target) && target !== "boss") {
       this.partners.set(playerId, { agentId: target, until: Date.now() + 45_000 });
-      await this.replyTo(target, text);
+      await this.replyTo(target, text, speaker);
       return;
     }
     await this.bossChatter(text);

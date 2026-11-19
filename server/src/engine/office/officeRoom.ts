@@ -51,9 +51,9 @@ export class OfficeRoom {
     return this.orch.talkTo(agentId, player);
   }
 
-  /** 老板说话：45s 内聊过的 agent 优先接话，否则 PM 出场 */
-  bossSpeak(playerId: string, text: string, agentId?: string) {
-    return this.orch.bossSpeak(playerId, text, agentId);
+  /** 老板说话：指定/身边的 agent 优先接话，否则 PM 出场 */
+  bossSpeak(playerId: string, text: string, agentId?: string, speaker?: { id: string; x: number; z: number }) {
+    return this.orch.bossSpeak(playerId, text, agentId, speaker);
   }
 
   hasAgent(agentId: string) {

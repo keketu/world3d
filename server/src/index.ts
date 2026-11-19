@@ -80,6 +80,8 @@ const ROOM_EVENT_MAP: Record<string, string> = {
   "notify": "room:notify",
   "meeting:started": "room:meeting:started",
   "meeting:ended": "room:meeting:ended",
+  // agent 对老板的应答走聊天流（客户端 chat 频道）
+  chat: "chat",
 };
 
 /** 房间内广播：发给所有在该房间的玩家 */
@@ -300,7 +302,19 @@ io.on("connection", (socket: Socket) => {
     const t = String(text ?? "").trim();
     if (!t) return;
     const aid = agentId && officeRoom.hasAgent(String(agentId)) ? String(agentId) : undefined;
-    void officeRoom.bossSpeak(p.id, t.slice(0, 120), aid);
+    // 老板的话进房间聊天流（其余成员；发送者客户端已本地回显，避免双条）
+    for (const m of presence.playersInRoom(OFFICE_ROOM_ID)) {
+      if (m.id === p.id) continue;
+      toSocket(m.socketId, "chat", {
+        id: randomUUID(),
+        kind: "player",
+        from: p.name,
+        fromId: p.id,
+        text: t.slice(0, 120),
+        ts: Date.now(),
+      });
+    }
+    void officeRoom.bossSpeak(p.id, t.slice(0, 120), aid, { id: p.id, x: p.x, z: p.z });
   });
 });
 

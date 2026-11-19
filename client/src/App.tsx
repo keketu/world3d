@@ -38,11 +38,16 @@ function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boole
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    // 房间内说话 = 老板发言；45s 内聊过的 agent 优先接话
-    if (useWorld.getState().inRoom) {
-      const partner = useWorld.getState().lastTalkAgent;
-      const agentId = partner && partner.until > Date.now() ? partner.id : undefined;
+    const st = useWorld.getState();
+    if (st.inRoom) {
+      // 站在谁身边就是跟谁说话（不用先按 E）；不在身边才回落到 45s 内聊过的人
+      const near = st.nearAgent;
+      const partner = st.lastTalkAgent;
+      const agentId = near?.id ?? (partner && partner.until > Date.now() ? partner.id : undefined);
       sendRoomSay(t, agentId);
+      if (agentId) st.setLastTalkAgent({ id: agentId, until: Date.now() + 45_000 });
+      // 房间发言没有 chat 服务器回声——本地立刻回显，话不能凭空消失
+      st.pushChat({ id: `local-${Date.now()}`, kind: "player", from: st.selfName || "我", fromId: st.selfId, text: t.slice(0, 120), ts: Date.now() });
     } else if (/种|盖|建|修|铺|挖|清空|围栏|栅栏|帮助|help/i.test(t)) {
       sendAiBuild(t);
     } else {
