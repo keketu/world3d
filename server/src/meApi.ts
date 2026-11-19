@@ -8,7 +8,7 @@ import type { Presence } from "./engine/presence.js";
 import type { OfficeRoom } from "./engine/office/officeRoom.js";
 import { verifyToken } from "./auth.js";
 import { verifyObjectProof } from "./attest.js";
-import { chatComplete, encryptApiKey, isAllowedBaseUrl, providerById, publicProviders } from "./llm.js";
+import { chatComplete, encryptApiKey, isAllowedBaseUrl, listProviderModels, providerById, publicProviders } from "./llm.js";
 import type { AuthedRequest } from "./auth.js";
 import { AGENTS_PER_USER, PERSONAL_PALETTE, PERSONAL_ROLES, PERSONAL_ROOM_CAP } from "@world3d/shared";
 
@@ -249,6 +249,36 @@ export function registerMeApi(app: Express, deps: MeDeps) {
         reason: `调用失败（${err.status ? `HTTP ${err.status}` : "网络"}）：${(err.message ?? "").slice(0, 180)}`,
       });
     }
+  });
+
+  /**
+   * 拉取厂商真实模型列表（GET /models，填好 Key 才能调）。
+   * apiKey 可传刚输入还没保存的（先选模型再保存）；没传则用已存密钥。
+   * 拉取失败回落静态兜底列表，永远返回可用列表（live=false 标注来源）。
+   */
+  app.post("/api/me/llm/models", async (req: AuthedRequest, res) => {
+    const user = me(req);
+    if (!user) return res.status(401).json({ ok: false, reason: "请先登录" });
+    if (!testRateOk(user.id)) return res.status(429).json({ ok: false, reason: "请求太频繁，稍后再试" });
+    const b = req.body as { provider?: string; baseUrl?: string; apiKey?: string };
+    const provider = String(b.provider ?? "").trim();
+    const def = providerById(provider);
+    if (!def) return res.status(400).json({ ok: false, reason: "不支持的厂商" });
+    const saved = db.getLlmConfig(user.id);
+    const apiKey = String(b.apiKey ?? "").trim() || (saved?.provider === provider ? saved.apiKey : "");
+    if (!apiKey) return res.status(400).json({ ok: false, reason: "还没有可用的 API Key，请先填写" });
+    if (provider === "custom") {
+      const baseUrl = String(b.baseUrl ?? "").trim().replace(/\/+$/, "");
+      if (!isAllowedBaseUrl(baseUrl)) return res.status(400).json({ ok: false, reason: "接口地址不合法" });
+    }
+    const live = await listProviderModels(provider, apiKey, String(b.baseUrl ?? "").trim());
+    if (live) return res.json({ ok: true, models: live, live: true });
+    return res.json({
+      ok: true,
+      models: def.models,
+      live: false,
+      reason: "厂商未提供列表接口或本次拉取失败，先给出常见模型（也可手动输入任意模型名）",
+    });
   });
 
   // ---------- 我的员工（个人 agent：雇佣 / 改造 / 解雇 + 附身进办公室） ----------

@@ -608,6 +608,24 @@ html:has(.meRoot) #root {
     flex: 0 0 auto;
     padding: 9px 15px;
   }
+  /* 顶栏手机端：收紧凑一行——品牌+标题靠左，两个胶囊按钮靠右；用户名下方名片已有，顶栏隐藏防挤压错乱 */
+  .meTopBar {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 12px;
+  }
+  .meTopUser {
+    display: none;
+  }
+  .meTopRight {
+    gap: 8px;
+    margin-left: auto;
+  }
+  .meTopLink {
+    padding: 5px 10px;
+    white-space: nowrap;
+    font-size: 12px;
+  }
 }
 
 /* ---------- 🧠 Agent 大脑（LLM 配置） ---------- */
@@ -683,6 +701,19 @@ html:has(.meRoot) #root {
   margin: -4px 0 0 108px;
   font-size: 12px;
   color: rgba(107, 95, 87, 0.85);
+}
+
+/* 拉取真实模型列表：小按钮 + 来源说明横排 */
+.llmModelSrc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.llmBtn.mini {
+  padding: 4px 12px;
+  font-size: 12px;
 }
 
 .llmSwitch {

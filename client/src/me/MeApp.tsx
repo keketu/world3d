@@ -60,9 +60,11 @@ export default function MeApp() {
           <span className="meTopUser">
             👤 {user.name}
           </span>
-          <a href="/admin" className="meTopLink">
-            管理后台 →
-          </a>
+          {user.role === "admin" && (
+            <a href="/admin" className="meTopLink">
+              管理后台 →
+            </a>
+          )}
           <a href="/" className="meTopLink">
             回到小世界 →
           </a>

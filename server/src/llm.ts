@@ -24,7 +24,8 @@ export const LLM_PROVIDERS: LlmProviderDef[] = [
     label: "DeepSeek 深度求索",
     baseUrl: "https://api.deepseek.com/v1",
     chatPath: "/chat/completions",
-    models: ["deepseek-chat", "deepseek-reasoner"],
+    // 兜底常见列表（2026-11 官方文档核对）；填好 Key 后以「拉取列表」为准
+    models: ["deepseek-flash", "deepseek-v4-pro"],
     keyHint: "sk- 开头，DeepSeek 开放平台申请",
     note: "性价比高，中文对话自然",
   },
@@ -33,25 +34,25 @@ export const LLM_PROVIDERS: LlmProviderDef[] = [
     label: "智谱 GLM",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     chatPath: "/chat/completions",
-    models: ["glm-4-plus", "glm-4-air", "glm-4-flash"],
+    models: ["glm-5.3-flash", "glm-5.3-flashx", "glm-5.3-flashx-legal"],
     keyHint: "bigmodel.cn 控制台 API Key",
-    note: "glm-4-flash 有免费额度",
+    note: "GLM-5.3 系列，中文对话自然",
   },
   {
     id: "minimax",
     label: "MiniMax",
     baseUrl: "https://api.minimaxi.com/v1",
     chatPath: "/text/chatcompletion_v2",
-    models: ["MiniMax-Text-01", "abab6.5s-chat"],
+    models: ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2", "MiniMax-Text-01"],
     keyHint: "MiniMax 开放平台 API Key",
-    note: "长文本能力强",
+    note: "Agent 推理与长文本能力强",
   },
   {
     id: "openai",
     label: "OpenAI GPT",
     baseUrl: "https://api.openai.com/v1",
     chatPath: "/chat/completions",
-    models: ["gpt-4o-mini", "gpt-4o"],
+    models: ["gpt-5.2", "gpt-5.1", "gpt-5-mini", "gpt-5-nano"],
     keyHint: "sk- 开头，OpenAI 平台申请",
     note: "需要能访问 OpenAI 的网络",
   },
@@ -60,7 +61,7 @@ export const LLM_PROVIDERS: LlmProviderDef[] = [
     label: "阿里通义千问",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     chatPath: "/chat/completions",
-    models: ["qwen-plus", "qwen-turbo", "qwen-max"],
+    models: ["qwen4-max", "qwen3.7-plus", "qwen3.8-flash"],
     keyHint: "sk- 开头，阿里云百炼申请",
     note: "国内直连，新用户有免费额度",
   },
@@ -251,5 +252,55 @@ export async function chatComplete(
   } catch (e) {
     if (e instanceof LlmError) throw e;
     throw new LlmError(0, "响应解析失败（接口不兼容？）");
+  }
+}
+
+/**
+ * 拉取厂商真实模型列表：GET {baseUrl}/models（OpenAI 兼容接口，填好 Key 才能调）。
+ * 任何失败返回 null，调用方回落静态兜底列表 —— 永不抛错，选模型不被阻塞。
+ */
+export async function listProviderModels(
+  providerId: string,
+  apiKey: string,
+  customBaseUrl?: string,
+  timeoutMs = 8_000
+): Promise<string[] | null> {
+  const def = providerById(providerId);
+  if (!def || !apiKey) return null;
+  const baseUrl = (providerId === "custom" ? (customBaseUrl ?? "") : def.baseUrl).replace(/\/+$/, "");
+  if (!baseUrl) return null;
+  if (providerId === "custom" && !isAllowedBaseUrl(baseUrl)) return null;
+  const doFetch = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(`${baseUrl}/models`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  let res: Response;
+  try {
+    res = await doFetch();
+  } catch {
+    try {
+      res = await doFetch();
+    } catch {
+      return null;
+    }
+  }
+  if (!res.ok) return null;
+  try {
+    const j = JSON.parse(await res.text()) as { data?: Array<{ id?: string }>; models?: Array<{ id?: string }> };
+    const ids = (j.data ?? j.models ?? [])
+      .map((m) => String(m.id ?? "").trim())
+      .filter((s) => /^[A-Za-z0-9][A-Za-z0-9._\-:/]{0,80}$/.test(s));
+    return ids.length ? [...new Set(ids)].sort() : null;
+  } catch {
+    return null;
   }
 }

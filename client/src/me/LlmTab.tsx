@@ -39,6 +39,13 @@ interface TestRes {
   reply?: string;
 }
 
+interface ModelsRes {
+  ok: boolean;
+  reason?: string;
+  models?: string[];
+  live?: boolean;
+}
+
 const MANUAL = "__manual__";
 
 export default function LlmTab({ token }: { token: string }) {
@@ -52,9 +59,20 @@ export default function LlmTab({ token }: { token: string }) {
   const [persona, setPersona] = useState("");
   const [temperature, setTemperature] = useState(0.7);
   const [enabled, setEnabled] = useState(true);
-  const [busy, setBusy] = useState<"" | "save" | "test" | "clear">("");
+  const [busy, setBusy] = useState<"" | "save" | "test" | "clear" | "models">("");
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [testRes, setTestRes] = useState<TestRes | null>(null);
+  const [liveModels, setLiveModels] = useState<string[] | null>(null);
+  const [modelSrc, setModelSrc] = useState<string | null>(null);
+
+  const applyModels = (res: ModelsRes) => {
+    if (res.ok && res.models?.length) {
+      setLiveModels(res.models);
+      setModelSrc(res.live ? `已从厂商拉取全部 ${res.models.length} 个模型` : res.reason ?? "使用常见模型列表");
+      return true;
+    }
+    return false;
+  };
 
   const load = useCallback(async () => {
     const d = await api<LlmRes>("/api/me/llm", token);
@@ -70,6 +88,15 @@ export default function LlmTab({ token }: { token: string }) {
       setPersona(c.persona);
       setTemperature(c.temperature);
       setEnabled(c.enabled);
+      // 已有密钥：进页自动拉一次真实模型列表（失败静默回落，不提示报错）
+      if (c.hasKey) {
+        const m = await post<ModelsRes>("/api/me/llm/models", token, {
+          provider: c.provider,
+          baseUrl: c.provider === "custom" ? c.baseUrl : undefined,
+        }).catch(() => null);
+        // 拉到真列表 → 模型行切回下拉；已存模型不在列表里则显示「手动输入」选中态（不静默改配置）
+        if (m && applyModels(m)) setManualModel(false);
+      }
     }
   }, [token]);
 
@@ -78,7 +105,7 @@ export default function LlmTab({ token }: { token: string }) {
   }, [load]);
 
   const def = providers.find((p) => p.id === provider);
-  const models = def?.models ?? [];
+  const models = liveModels ?? def?.models ?? [];
 
   const switchProvider = (id: string) => {
     setProvider(id);
@@ -88,6 +115,8 @@ export default function LlmTab({ token }: { token: string }) {
     setBaseUrl("");
     setTestRes(null);
     setMsg(null);
+    setLiveModels(null);
+    setModelSrc(null);
   };
 
   const save = async () => {
@@ -127,6 +156,25 @@ export default function LlmTab({ token }: { token: string }) {
     );
     setBusy("");
     setTestRes(d);
+  };
+
+  // 用 Key（刚输入未保存的也行）从厂商 GET /models 拉真实模型列表
+  const fetchModels = async () => {
+    setBusy("models");
+    setMsg(null);
+    const d = await post<ModelsRes>(
+      "/api/me/llm/models",
+      token,
+      { provider, baseUrl: provider === "custom" ? baseUrl : undefined, apiKey: apiKey || undefined }
+    );
+    setBusy("");
+    if (applyModels(d)) {
+      // 拉到真列表后，当前选中的模型不在列表里就切到第一个
+      setManualModel(false);
+      setModel((cur) => (d.models!.includes(cur) ? cur : d.models![0]));
+    } else {
+      setMsg({ kind: "err", text: d.reason ?? "拉取失败（Key 对吗？）" });
+    }
   };
 
   const clear = async () => {
@@ -203,6 +251,13 @@ export default function LlmTab({ token }: { token: string }) {
               </select>
             )}
           </label>
+
+          <div className="llmHint llmModelSrc">
+            <button className="llmBtn mini" disabled={busy !== ""} onClick={fetchModels} title="用 API Key 从厂商接口拉取真实模型列表">
+              {busy === "models" ? "拉取中…" : "⟳ 拉取真实模型列表"}
+            </button>
+            {modelSrc && <span>{modelSrc}</span>}
+          </div>
 
           {provider === "custom" && (
             <label className="llmRow">
@@ -329,7 +384,7 @@ export default function LlmTab({ token }: { token: string }) {
         </div>
         <div className="llmLinks">
           <span>DeepSeek → platform.deepseek.com</span>
-          <span>智谱 GLM → open.bigmodel.cn（glm-4-flash 有免费额度）</span>
+          <span>智谱 GLM → open.bigmodel.cn（有免费额度的模型以官网为准）</span>
           <span>MiniMax → platform.minimaxi.com</span>
           <span>OpenAI → platform.openai.com</span>
           <span>通义千问 → bailian.console.aliyun.com（新用户有免费额度）</span>
