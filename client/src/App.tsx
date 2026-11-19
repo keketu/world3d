@@ -108,7 +108,75 @@ function TopBar({ onSettings }: { onSettings: () => void }) {
   const toggleView = useWorld((s) => s.toggleView);
   const auth = useWorld((s) => s.auth);
   const logout = useWorld((s) => s.logout);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // 触屏设备顶栏只留状态 + ⚙ + ☰，其余收进菜单（防小屏挤爆换行）
+  const coarse =
+    typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   const TIER_LABEL = { low: "流畅", mid: "均衡", high: "高清" } as const;
+
+  if (coarse) {
+    return (
+      <div className="topBar">
+        <div className="brand">🌍 小世界</div>
+        <div className={`connPill ${connected ? "on" : "off"}`}>{connected ? "●" : "○"}</div>
+        <div className="playersPill">👥 {players.length + 1}</div>
+        <i className="topBarGap" />
+        <button className="toggleBtn" onClick={onSettings} title="设置">
+          ⚙
+        </button>
+        <button
+          className={`toggleBtn ${menuOpen ? "on" : ""}`}
+          onClick={() => setMenuOpen((v) => !v)}
+          title="菜单"
+        >
+          ☰
+        </button>
+        {menuOpen && <div className="topMenuMask" onClick={() => setMenuOpen(false)} />}
+        {menuOpen && (
+          <div className="topMenu">
+            {auth.user ? (
+              <>
+                <a href="/me" onClick={() => setMenuOpen(false)}>
+                  🏝 我的小岛
+                </a>
+                <a href="/admin" onClick={() => setMenuOpen(false)}>
+                  🛠 {auth.user.role === "admin" ? "管理后台" : "后台登录"}
+                </a>
+                <button
+                  className={showOwnerLabels ? "on" : ""}
+                  onClick={() => toggleOwnerLabels()}
+                >
+                  ✍️ 产权标注 {showOwnerLabels ? "· 开" : "· 关"}
+                </button>
+                <button onClick={toggleView}>
+                  {viewMode === "third" ? "👁 切到第一人称" : "🎥 切到第三人称"}
+                </button>
+                <div className="topMenuQuality">
+                  画质
+                  {(["low", "mid", "high"] as const).map((t) => (
+                    <button key={t} className={`qBtn ${tier === t ? "on" : ""}`} onClick={() => setTier(t)}>
+                      {TIER_LABEL[t]}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="topMenuLogout"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    logout();
+                  }}
+                >
+                  {auth.user.role === "admin" ? "👑" : "🎫"} {auth.user.name} · 退出
+                </button>
+              </>
+            ) : (
+              <div className="topMenuTip">以游客身份游玩中，账号入口在退出世界后</div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="topBar">
@@ -138,7 +206,8 @@ function TopBar({ onSettings }: { onSettings: () => void }) {
       )}
       <button className="toggleBtn" onClick={onSettings} title="设置">
         ⚙
-      </button>      <button className={`toggleBtn ${showOwnerLabels ? "on" : ""}`} onClick={toggleOwnerLabels} title="显示每个造物的创建者">
+      </button>
+      <button className={`toggleBtn ${showOwnerLabels ? "on" : ""}`} onClick={toggleOwnerLabels} title="显示每个造物的创建者">
         ✍️ 产权标注
       </button>
       <button className="toggleBtn" onClick={toggleView} title="切换第一/第三人称（快捷键 V）">

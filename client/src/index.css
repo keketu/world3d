@@ -1498,39 +1498,11 @@ input:focus-visible {
   .chatPanel:not(.open) {
     display: none;
   }
-  .hotbar {
-    bottom: auto;
-    top: 64px;
-    transform: translateX(-50%);
-    padding: 5px;
-    border-radius: 22px;
-  }
-  .slot {
-    width: 40px;
-    height: 40px;
-  }
   .slotIcon {
     font-size: 19px;
   }
-  .hint {
-    display: none;
-  }
-  /* 窄屏顶栏：收起次要控件，允许换行，避免溢出裁切 */
-  .topBar {
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-  .brand .sub {
-    display: none;
-  }
   .brand {
     padding: 6px 12px 6px 10px;
-  }
-  .qualitySel {
-    display: none;
-  }
-  .toggleBtn {
-    padding: 6px 10px;
   }
 }
 
@@ -1546,4 +1518,181 @@ input:focus-visible {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ink-faint);
+}
+
+/* ---------- 手机端顶栏 ☰ 菜单（收纳次要按钮） ---------- */
+.topBarGap {
+  flex: 1;
+}
+
+.topMenuMask {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+}
+
+.topMenu {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  z-index: 40;
+  min-width: 216px;
+  max-width: calc(100vw - 24px);
+  background: var(--cream-1);
+  border: 2px solid var(--biscuit);
+  border-radius: 20px;
+  box-shadow: var(--mochi), 0 18px 40px rgba(74, 52, 40, 0.24);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: setPop 200ms var(--bounce);
+}
+
+.topMenu a,
+.topMenu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+}
+
+.topMenu a:active,
+.topMenu button:active,
+.topMenu button.on {
+  background: var(--cream-2);
+}
+
+.topMenuLogout {
+  color: #a85050 !important;
+  border-top: 2px dashed var(--biscuit) !important;
+  border-radius: 0 0 12px 12px !important;
+  margin-top: 4px;
+}
+
+.topMenuQuality {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.topMenuQuality .qBtn {
+  padding: 6px 11px;
+  font-size: 12px;
+  background: var(--cream-2);
+}
+
+.topMenuQuality .qBtn.on {
+  background: var(--sakura-deep, #e8798f);
+  color: #fff;
+}
+
+.topMenuTip {
+  padding: 12px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+/* ---------- 手机端布局总调整：hotbar 回底部 + 安全区 ---------- */
+@media (pointer: coarse) {
+  .hotbar {
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    top: auto;
+    padding: 5px;
+    gap: 5px;
+    border-radius: 22px;
+  }
+  .slot {
+    width: 40px;
+    height: 40px;
+  }
+  .slotKey {
+    display: none; /* 触屏没有数字键，序号没意义 */
+  }
+  /* 右侧悬浮按钮整体抬高到 hotbar 之上 */
+  .chatFab {
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    right: 12px;
+  }
+  .viewFab {
+    bottom: calc(158px + env(safe-area-inset-bottom, 0px));
+    right: 12px;
+  }
+  .officeFab {
+    bottom: calc(204px + env(safe-area-inset-bottom, 0px));
+    right: 12px;
+  }
+  /* 进门/聊天按钮：居中悬在 hotbar 上沿 */
+  .doorBtn {
+    bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  }
+  .talkBtn {
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  }
+  /* 办公室项目面板：从贴底改为悬在 hotbar 上方 */
+  .officePanel {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+  /* 聊天全屏面板避开手势条 */
+  .chatPanel.open {
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  /* 设置面板：右侧小抽屉 → 底部大抽屉（好点、好滑） */
+  .setPanel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 72vh;
+    border-radius: 24px 24px 0 0;
+    animation: sheetUp 300ms var(--bounce);
+  }
+  .setBody {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .setPanel .setBody {
+    overflow-y: auto;
+  }
+  .hint {
+    display: none;
+  }
+  .brand .sub {
+    display: none;
+  }
+  .topBar {
+    flex-wrap: nowrap;
+  }
+  .toggleBtn {
+    padding: 6px 10px;
+  }
+  /* 登录卡在窄屏收紧内边距 */
+  .joinCard {
+    padding: 28px 20px 24px;
+  }
+}
+
+@media (pointer: coarse) and (max-width: 359px) {
+  .slot {
+    width: 36px;
+    height: 36px;
+  }
+  .slotIcon {
+    font-size: 17px;
+  }
 }

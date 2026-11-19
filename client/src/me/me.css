@@ -580,6 +580,22 @@
   .meSearch {
     width: 140px;
   }
+  /* 标签栏单行横滑，不换行堆叠 */
+  .meTabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    margin: 12px 0;
+  }
+  .meTabs::-webkit-scrollbar {
+    display: none;
+  }
+  .meTab {
+    flex: 0 0 auto;
+    padding: 9px 15px;
+  }
 }
 
 /* ---------- 🧠 Agent 大脑（LLM 配置） ---------- */
