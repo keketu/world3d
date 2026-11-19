@@ -8,6 +8,10 @@ export type ViewMode = "third" | "first";
 export interface Settings {
   /** 鼠标转视角灵敏度（1 = 默认） */
   mouseSensitivity: number;
+  /** 自由鼠标转向：鼠标横向滑动即转视角（不需按住拖动） */
+  freeLook: boolean;
+  /** 边缘锁定：鼠标滑到屏幕左右边缘时持续转向 */
+  edgeLock: boolean;
   /** 键盘 WASD 移动开关 */
   keyboardMove: boolean;
   /** 键盘移动速度倍率 */
@@ -16,6 +20,8 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   mouseSensitivity: 1,
+  freeLook: true,
+  edgeLock: true,
   keyboardMove: true,
   keyboardSpeed: 1,
 };

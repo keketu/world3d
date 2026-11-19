@@ -25,6 +25,24 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         <div className="setBody">
           <div className="setGroup">
             <div className="setGroupTitle">鼠标视角</div>
+            <label className="setSwitch">
+              <input
+                type="checkbox"
+                checked={settings.freeLook}
+                onChange={(e) => setSettings({ freeLook: e.target.checked })}
+              />
+              <span className="setSwitchBox" />
+              自由转向（鼠标左右滑动即转视角，无需按住）
+            </label>
+            <label className="setSwitch">
+              <input
+                type="checkbox"
+                checked={settings.edgeLock}
+                onChange={(e) => setSettings({ edgeLock: e.target.checked })}
+              />
+              <span className="setSwitchBox" />
+              边缘持续转向（鼠标滑到屏幕左右边缘时自动转）
+            </label>
             <div className="setRow">
               <label>左右转灵敏度</label>
               <input
@@ -38,11 +56,10 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
               <b className="setVal">{settings.mouseSensitivity.toFixed(2)}×</b>
             </div>
             <div className="setHint">
-              拖动画面左右转视角的快慢。数值越大转得越快，调小更精细。
+              鼠标在画面上左右滑动即可转动视角；滑到屏幕边缘会持续转向（可关掉）。
               <div className="setPreview">
                 <button
                   className="setMiniBtn"
-                  onMouseDown={(e) => e.currentTarget.dispatchEvent(new CustomEvent("noop"))}
                   onClick={() => setSettings({ mouseSensitivity: Math.max(0.2, Number((settings.mouseSensitivity - 0.1).toFixed(2))) })}
                 >
                   慢一点

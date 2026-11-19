@@ -170,6 +170,15 @@ export function startGame(container: HTMLElement): GameHandle {
   const pointers = new Map<number, PtrTrack>();
   let lastPinch = 0;
   const mouseNDC = new THREE.Vector2(9, 9);
+  /** 鼠标上一次位置（自由转向的增量基准） */
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+  /** 边缘锁定：鼠标贴近左右边缘时持续转向 */
+  let edgeTurn = 0;
+  /** 鼠标是否在画布内（移出后停止边缘转向） */
+  let mouseInside = false;
+  /** 首次收到鼠标位置时初始化基准，避免第一帧视角猛跳 */
+  let mouseInit = false;
   const dom = renderer.domElement;
 
   // ---------- 点击行走 ----------
@@ -209,6 +218,11 @@ export function startGame(container: HTMLElement): GameHandle {
     const e = raw;
     // 只处理画布上的按下（UI 面板/聊天框的事件不拦截游戏交互）
     if (e.target !== renderer.domElement) return;
+    // 按下时重置鼠标基准，避免「按下瞬间视角跳一下」
+    if (e.pointerType === "mouse") {
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    }
     pointers.set(e.pointerId, {
       sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
       moved: 0, t0: Date.now(), button: e.button,
@@ -253,14 +267,35 @@ export function startGame(container: HTMLElement): GameHandle {
       p.moved += Math.abs(dx) + Math.abs(dy);
       p.lx = e.clientX;
       p.ly = e.clientY;
-      // 鼠标左右转视角：灵敏度可调（1 = 默认）
-      const sens = useWorld.getState().settings.mouseSensitivity;
-      camYaw -= dx * 0.0052 * sens;
-      // 俯仰钳制：第一人称可略仰视；房间内保持俯视区间（不穿墙）
-      const [pMin, pMax] =
-        viewMode === "first" ? [-0.55, 1.35] : roomHost.active ? [0.55, 1.45] : [0.15, 1.45];
-      camPitch = Math.max(pMin, Math.min(pMax, camPitch + dy * 0.0042 * sens));
+      applyLookDelta(dx, dy, true);
+    } else if (e.pointerType === "mouse") {
+      // 自由转向：鼠标横向滑动即转视角（不需要按住拖动）
+      if (!mouseInit) {
+        mouseInit = true;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+      }
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      if (dx !== 0 || dy !== 0) applyLookDelta(dx, dy, false);
     }
+  };
+
+  /**
+   * 把鼠标位移应用到视角（横向转 yaw + 纵向转 pitch），灵敏度可调
+   * fromDrag=true 表示按住拖动（始终生效）；false 表示自由滑动（受 freeLook 开关控制）
+   */
+  const applyLookDelta = (dx: number, dy: number, fromDrag: boolean) => {
+    const st = useWorld.getState().settings;
+    if (!fromDrag && !st.freeLook) return;
+    const sens = st.mouseSensitivity;
+    camYaw -= dx * 0.0052 * sens;
+    // 俯仰钳制：第一人称可略仰视；房间内保持俯视区间（不穿墙）
+    const [pMin, pMax] =
+      viewMode === "first" ? [-0.55, 1.35] : roomHost.active ? [0.55, 1.45] : [0.15, 1.45];
+    camPitch = Math.max(pMin, Math.min(pMax, camPitch + dy * 0.0042 * sens));
   };
 
   const onPointerUp = (raw: InEv) => {
@@ -326,6 +361,13 @@ export function startGame(container: HTMLElement): GameHandle {
   }
   dom.addEventListener("wheel", onWheel, { passive: true });
   dom.addEventListener("contextmenu", onContext);
+  // 鼠标是否在画布内（自由转向 + 边缘锁定用）
+  dom.addEventListener("pointerenter", (e) => {
+    if (e.pointerType === "mouse") mouseInside = true;
+  });
+  dom.addEventListener("pointerleave", (e) => {
+    if (e.pointerType === "mouse") mouseInside = false;
+  });
 
   // ---------- 射线：地形 + 道具 ----------
   const raycaster = new THREE.Raycaster();
@@ -555,6 +597,20 @@ export function startGame(container: HTMLElement): GameHandle {
           self.rotY = Math.atan2(dx, dz);
           const ty = clientWorld.surfaceY(self.x, self.z);
           self.y += (ty - self.y) * Math.min(1, dt * 12);
+        }
+      }
+
+      // ---------- 鼠标横向移动转向（不需按住） ----------
+      // 自由转向：鼠标横向滑动即转视角；滑到屏幕左右边缘时持续缓慢转
+      if (useWorld.getState().settings.freeLook && !roomHost.active && mouseInside) {
+        const w = container.clientWidth;
+        const EDGE = 24;
+        let turn = 0;
+        if (hoverScreen.x < EDGE) turn = 1;
+        else if (hoverScreen.x > w - EDGE) turn = -1;
+        if (turn !== 0 && useWorld.getState().settings.edgeLock) {
+          const sens = useWorld.getState().settings.mouseSensitivity;
+          camYaw += turn * dt * 1.1 * sens;
         }
       }
 
@@ -806,6 +862,7 @@ export function startGame(container: HTMLElement): GameHandle {
     pointers,
     viewMode: () => viewMode,
     selfPos: () => ({ ...self }),
+    camYaw: () => camYaw,
     teleport: (x: number, z: number, y?: number) => {
       self.x = x;
       self.z = z;
