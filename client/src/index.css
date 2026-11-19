@@ -74,30 +74,6 @@ body,
   }
 }
 
-/* ---------- 虚拟摇杆 ---------- */
-.joyBase {
-  position: absolute;
-  width: 112px;
-  height: 112px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(255, 253, 250, 0.2);
-  border: 2px solid rgba(255, 252, 248, 0.55);
-  pointer-events: none;
-  z-index: 8;
-}
-
-.joyKnob {
-  position: absolute;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(255, 252, 248, 0.85);
-  box-shadow: var(--ring), 0 4px 14px rgba(84, 62, 52, 0.25);
-  pointer-events: none;
-}
-
 /* ---------- 加入对话框 ---------- */
 .joinOverlay {
   position: absolute;

@@ -85,8 +85,9 @@ export const PROP_KINDS: Record<string, PropKindDef> = {
   },
 };
 
-/** 手搓 hotbar 可放道具 */
+/** 手搓 hotbar：首位「空手」= 点击行走模式，其后为可放道具 */
 export const HOTBAR_PROPS: Array<{ kind: string; variant: string; label: string; icon: string }> = [
+  { kind: "hand", variant: "", label: "空手行走", icon: "✋" },
   { kind: "tree", variant: "樱花", label: "樱花树", icon: "🌸" },
   { kind: "tree", variant: "松", label: "松树", icon: "🌲" },
   { kind: "flower", variant: "粉", label: "粉花丛", icon: "🌸" },

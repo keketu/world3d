@@ -11,7 +11,7 @@ export function Hotbar() {
           key={`${p.kind}-${p.variant}`}
           className={`slot ${hotbarIndex === i ? "on" : ""}`}
           onClick={() => setHotbar(i)}
-          title={`${p.label}（按 ${i + 1}，左键放置）`}
+          title={`${p.label}（按 ${i + 1}${p.kind === "hand" ? "，点击地面行走" : "，点地面放置"}）`}
         >
           <span className="slotIcon">{p.icon}</span>
           <span className="slotKey">{i + 1}</span>

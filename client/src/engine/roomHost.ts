@@ -40,6 +40,8 @@ class RoomHost {
   active = false;
   private deps: HostDeps | null = null;
   private roomGroup: THREE.Group | null = null;
+  /** 房间实体网格（房间模式下作为点击射线目标） */
+  solidMesh: THREE.Mesh | null = null;
   private roomLights: THREE.PointLight[] = [];
   private rigRoot: THREE.Group | null = null;
   private rigs = new Map<string, { rig: OfficeAgentRig; info: AgentInfo }>();
@@ -104,6 +106,7 @@ class RoomHost {
     // 室内组（首次构建，之后复用）
     if (!this.roomGroup) {
       this.roomGroup = buildOfficeRoom();
+      this.solidMesh = (this.roomGroup.getObjectByName("officeSolid") as THREE.Mesh) ?? null;
       scene.add(this.roomGroup);
       for (const lx of [-6, 0, 6]) {
         const l = new THREE.PointLight(0xfff2dd, 0.7, 18);

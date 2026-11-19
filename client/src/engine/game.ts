@@ -9,6 +9,7 @@ import { useWorld } from "../state/store";
 import { qualityFor, applyQuality, detectTier } from "./quality";
 import { sendMove } from "../net/socket";
 import { roomHost } from "./roomHost";
+import { findPath } from "../scene/office/nav";
 
 export interface GameHandle {
   dispose(): void;
@@ -125,11 +126,9 @@ export function startGame(container: HTMLElement): GameHandle {
   let camDist = 13;
   let viewMode: "third" | "first" = "third";
 
-  // ---------- 输入（鼠标/触摸统一 Pointer Events） ----------
-  const keys = new Set<string>();
+  // ---------- 输入（鼠标/触摸统一 Pointer Events；行走 = 点击地面） ----------
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-    keys.add(e.code);
     if (e.code === "KeyV") useWorld.getState().toggleView();
     if (e.code === "KeyE") {
       const st = useWorld.getState();
@@ -141,44 +140,31 @@ export function startGame(container: HTMLElement): GameHandle {
       if (n >= 0 && n < HOTBAR_PROPS.length) useWorld.getState().setHotbar(n);
     }
   };
-  const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
   window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
 
   interface PtrTrack {
     sx: number; sy: number; lx: number; ly: number;
-    moved: number; t0: number; kind: "cam" | "joy"; button: number;
+    moved: number; t0: number; button: number;
   }
   const pointers = new Map<number, PtrTrack>();
-  let joyId: number | null = null;
-  const joy = { active: false, bx: 0, by: 0, dx: 0, dy: 0 };
-  const JOY_R = 52;
   let lastPinch = 0;
   const mouseNDC = new THREE.Vector2(9, 9);
   const dom = renderer.domElement;
-  const isTouchPointer = (e: { pointerType: string }) => e.pointerType !== "mouse";
 
-  // 虚拟摇杆 DOM
-  const joyBase = document.createElement("div");
-  joyBase.className = "joyBase";
-  joyBase.style.display = "none";
-  const joyKnob = document.createElement("div");
-  joyKnob.className = "joyKnob";
-  joyBase.appendChild(joyKnob);
-  container.appendChild(joyBase);
+  // ---------- 点击行走 ----------
+  let moveTarget: { x: number; z: number } | null = null; // 户外：直线走向目标点
+  let roomPath: Array<{ x: number; z: number }> | null = null; // 房间：A* 路径
+  let roomWp = 1; // 下一个路径点索引（0 是起点）
 
-  function joyUpdate(e: { clientX: number; clientY: number }) {
-    let dx = e.clientX - joy.bx;
-    let dy = e.clientY - joy.by;
-    const d = Math.hypot(dx, dy);
-    if (d > JOY_R) {
-      dx = (dx / d) * JOY_R;
-      dy = (dy / d) * JOY_R;
+  function setPlayerPath(x: number, z: number) {
+    if (roomHost.active) {
+      roomPath = findPath(self.x, self.z, x, z);
+      roomWp = 1;
+      moveTarget = null;
+    } else {
+      moveTarget = { x, z };
+      roomPath = null;
     }
-    joy.dx = dx / JOY_R;
-    joy.dy = dy / JOY_R;
-    joyKnob.style.left = `${joy.bx + dx}px`;
-    joyKnob.style.top = `${joy.by + dy}px`;
   }
 
   interface InEv {
@@ -202,33 +188,10 @@ export function startGame(container: HTMLElement): GameHandle {
     const e = raw;
     // 只处理画布上的按下（UI 面板/聊天框的事件不拦截游戏交互）
     if (e.target !== renderer.domElement) return;
-    // 虚拟摇杆：触屏且点在屏幕左侧 42% 区域
-    if (isTouchPointer(e) && e.clientX < container.clientWidth * 0.42 && joyId === null) {
-      joyId = e.pointerId;
-      joy.active = true;
-      joy.bx = e.clientX;
-      joy.by = e.clientY;
-      joy.dx = 0;
-      joy.dy = 0;
-      joyBase.style.display = "";
-      joyBase.style.left = `${e.clientX}px`;
-      joyBase.style.top = `${e.clientY}px`;
-      joyKnob.style.left = `${e.clientX}px`;
-      joyKnob.style.top = `${e.clientY}px`;
-      // 关键：摇杆指针也要进入追踪表，否则 pointermove 找不到它
-      pointers.set(e.pointerId, {
-        sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
-        moved: 0, t0: Date.now(), kind: "joy", button: 0,
-      });
-      return;
-    }
-    const camPointers = [...pointers.values()].filter((p) => p.kind === "cam").length;
-    lastPinch = 0;
     pointers.set(e.pointerId, {
       sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
-      moved: 0, t0: Date.now(), kind: "cam", button: e.button,
+      moved: 0, t0: Date.now(), button: e.button,
     });
-    void camPointers;
   };
 
   const onPointerMove = (raw: InEv) => {
@@ -242,11 +205,7 @@ export function startGame(container: HTMLElement): GameHandle {
     }
     const p = pointers.get(e.pointerId);
     if (p) {
-      if (p.kind === "joy") {
-        joyUpdate(e);
-        return;
-      }
-      const camPointers = [...pointers.entries()].filter(([, q]) => q.kind === "cam");
+      const camPointers = [...pointers.entries()];
       if (camPointers.length >= 2) {
         // 双指捏合缩放
         p.lx = e.clientX;
@@ -283,15 +242,6 @@ export function startGame(container: HTMLElement): GameHandle {
 
   const onPointerUp = (raw: InEv) => {
     const e = raw;
-    if (e.pointerId === joyId) {
-      joyId = null;
-      joy.active = false;
-      joy.dx = 0;
-      joy.dy = 0;
-      joyBase.style.display = "none";
-      pointers.delete(e.pointerId);
-      return;
-    }
     const p = pointers.get(e.pointerId);
     if (!p) return;
     pointers.delete(e.pointerId);
@@ -305,7 +255,18 @@ export function startGame(container: HTMLElement): GameHandle {
       mouseNDC.y = -(p.ly / container.clientHeight) * 2 + 1;
       hoverTarget = raycastWorld();
       if (p.button === 2) removeAction();
-      else clickAction();
+      else if (roomHost.active) {
+        // 房间内：点击 = 行走（A* 自动绕开桌椅）
+        if (hoverTarget) setPlayerPath(hoverTarget.point.x, hoverTarget.point.z);
+      } else {
+        const sel = HOTBAR_PROPS[useWorld.getState().hotbarIndex];
+        if (sel && sel.kind === "hand") {
+          // 空手：点击地面行走
+          if (hoverTarget) moveTarget = { x: hoverTarget.point.x, z: hoverTarget.point.z };
+        } else {
+          clickAction();
+        }
+      }
     } else if (wasLongPress) {
       mouseNDC.x = (p.lx / container.clientWidth) * 2 - 1;
       mouseNDC.y = -(p.ly / container.clientHeight) * 2 + 1;
@@ -353,6 +314,14 @@ export function startGame(container: HTMLElement): GameHandle {
   }
 
   function raycastWorld(): HitResult | null {
+    // 房间模式：射线只打房间实体（户外地形在房间区域的高度不可用）
+    if (roomHost.active && roomHost.solidMesh) {
+      raycaster.setFromCamera(mouseNDC, camera);
+      raycaster.far = 60;
+      const hits = raycaster.intersectObject(roomHost.solidMesh, false);
+      if (hits[0]) return { ground: true, point: hits[0].point };
+      return null;
+    }
     raycaster.setFromCamera(mouseNDC, camera);
     raycaster.far = 32;
     const propMeshList: THREE.Object3D[] = [];
@@ -450,8 +419,10 @@ export function startGame(container: HTMLElement): GameHandle {
       self.y = y;
       self.z = z;
       if (rotY !== undefined) self.rotY = rotY;
+      moveTarget = null;
+      roomPath = null;
       camTarget.set(x, y + 1.2, z);
-      camCur.set(x, y + 4, z + 6);
+      camCur.set(x, y + 10, z + 3);
     },
     getSelf: () => ({ x: self.x, y: self.y, z: self.z, rotY: self.rotY }),
     getCamDist: () => camDist,
@@ -512,45 +483,56 @@ export function startGame(container: HTMLElement): GameHandle {
     const time = clock.elapsedTime;
     const st = useWorld.getState();
 
-    // 1. 本地移动
+    // 1. 本地移动（点击行走：户外直线+滑动避障，房间 A* 路径）
     if (st.joined) {
-      let mx = 0;
-      let mz = 0;
-      if (keys.has("KeyW") || keys.has("ArrowUp")) mz -= 1;
-      if (keys.has("KeyS") || keys.has("ArrowDown")) mz += 1;
-      if (keys.has("KeyA") || keys.has("ArrowLeft")) mx -= 1;
-      if (keys.has("KeyD") || keys.has("ArrowRight")) mx += 1;
-      if (joy.active) {
-        // 虚拟摇杆：屏幕上方=向前走
-        mx += joy.dx;
-        mz += joy.dy;
-      }
-      const mag = Math.hypot(mx, mz);
-      const moving = mag > 0.18;
-      if (moving) {
-        mx /= Math.max(1, mag);
-        mz /= Math.max(1, mag);
-        const sin = Math.sin(camYaw);
-        const cos = Math.cos(camYaw);
-        const wx = mx * cos - mz * sin;
-        const wz = mx * sin + mz * cos;
-        const speed = 4.6;
-        const nx = self.x + wx * speed * dt;
-        const nz = self.z + wz * speed * dt;
-        if (roomHost.active) {
-          // 房间模式：局部坐标 + 房间碰撞；若已卡在障碍里则放行移动（脱困）
-          const stuck = roomHost.movementBlocked(self.x, self.z);
-          if (stuck || !roomHost.movementBlocked(nx, self.z)) self.x = nx;
-          if (stuck || !roomHost.movementBlocked(self.x, nz)) self.z = nz;
-          self.y = 0;
+      let moving = false;
+      const SPEED = 4.6;
+      if (roomHost.active && roomPath) {
+        let remain = SPEED * dt;
+        while (remain > 0 && roomWp < roomPath.length) {
+          const wp = roomPath[roomWp];
+          const dx = wp.x - self.x;
+          const dz = wp.z - self.z;
+          const d = Math.hypot(dx, dz);
+          if (d <= remain) {
+            self.x = wp.x;
+            self.z = wp.z;
+            remain -= d;
+            roomWp++;
+          } else {
+            self.x += (dx / d) * remain;
+            self.z += (dz / d) * remain;
+            remain = 0;
+          }
+          moving = true;
+          self.rotY = Math.atan2(dx, dz);
+        }
+        if (roomWp >= roomPath.length) roomPath = null;
+        self.y = 0;
+      } else if (moveTarget) {
+        const dx = moveTarget.x - self.x;
+        const dz = moveTarget.z - self.z;
+        const dist = Math.hypot(dx, dz);
+        const step = SPEED * dt;
+        if (dist <= step) {
+          self.x = moveTarget.x;
+          self.z = moveTarget.z;
+          moveTarget = null;
+          moving = true;
         } else {
+          const nx = self.x + (dx / dist) * step;
+          const nz = self.z + (dz / dist) * step;
           const stuckOut = clientWorld.blockedAt(self.x, self.z);
-          if (stuckOut || !clientWorld.blockedAt(nx, self.z)) self.x = nx;
-          if (stuckOut || !clientWorld.blockedAt(self.x, nz)) self.z = nz;
+          const mx = stuckOut || !clientWorld.blockedAt(nx, self.z);
+          const mz = stuckOut || !clientWorld.blockedAt(self.x, nz);
+          if (mx) self.x = nx;
+          if (mz) self.z = nz;
+          if (!mx && !mz) moveTarget = null; // 撞死角就停下
+          moving = mx || mz;
+          self.rotY = Math.atan2(dx, dz);
           const ty = clientWorld.surfaceY(self.x, self.z);
           self.y += (ty - self.y) * Math.min(1, dt * 12);
         }
-        self.rotY = Math.atan2(wx, wz);
       }
       self.anim = moving ? "walk" : "idle";
 
@@ -736,15 +718,15 @@ export function startGame(container: HTMLElement): GameHandle {
     clientWorld,
     scene,
     propMeshes,
-    joy,
     pointers,
-    joyId: () => joyId,
     viewMode: () => viewMode,
     selfPos: () => ({ ...self }),
     teleport: (x: number, z: number, y?: number) => {
       self.x = x;
       self.z = z;
       if (y !== undefined) self.y = y;
+      moveTarget = null;
+      roomPath = null;
     },
     store: useWorld,
   };
@@ -753,8 +735,6 @@ export function startGame(container: HTMLElement): GameHandle {
     dispose() {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      dom.removeEventListener("pointerdown", onPointerDown as never);
       window.removeEventListener("pointermove", onPointerMove as never);
       window.removeEventListener("pointerup", onPointerUp as never);
       window.removeEventListener("pointercancel", onPointerUp as never);
