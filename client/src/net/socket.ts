@@ -157,12 +157,16 @@ export function sendRoomArrived(agentId: string, orderId: string) {
   socket?.emit("room:arrived", { agentId, orderId });
 }
 
+export function sendRoomTalkTo(agentId: string) {
+  socket?.emit("room:talkTo", { agentId });
+}
+
 export function sendRoomAssign(brief: string) {
   socket?.emit("room:assign", { brief });
 }
 
-export function sendRoomSay(text: string) {
-  socket?.emit("room:say", { text });
+export function sendRoomSay(text: string, agentId?: string) {
+  socket?.emit("room:say", agentId ? { text, agentId } : { text });
 }
 
 export function join(name: string, onHello: (h: HelloPayload) => void) {

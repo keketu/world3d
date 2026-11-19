@@ -206,6 +206,41 @@ export const AMBIENT_CHAT: Record<string, string[]> = {
   reply: ["哈哈是吧！", "真的假的，回头给我看看", "羡慕了羡慕了", "有空一起呀～"],
 };
 
+// ---------- 玩家与 agent 面对面闲聊（P2.5 交互） ----------
+
+// 空闲时被老板搭话的角色化问候
+export const AGENT_GREET: Record<string, string[]> = {
+  pm: ["老板找我？随时待命 🫡", "在的在的～是不是又有新想法了？"],
+  product: ["老板好，正好有份结构稿想请您过目。", "老板，我在理用户路径，有什么指示？"],
+  design: ["老板～我刚在找参考，您来得正好 🎨", "老板好呀，这周的氛围感我调好了"],
+  frontend: ["稳了老板，页面热乎着呢，随时可以演示！", "老板好！键盘已经就位 ⌨️"],
+  backend: ["老板，接口都稳着呢，有什么指示？", "在的。并发和存储我都留了余量，您放心。"],
+  qa: ["老板好～用例刚列完，正想找您对齐呢 😌", "老板，谁写的代码都逃不过我的 bug 列表"],
+};
+
+// 工作中被搭话（不打断手头活）
+export const AGENT_BUSY = (task: string) => [
+  `正在赶「${task}」，有事您说，耳朵一直开着 👂`,
+  `「${task}」在跑了～我先不停手，您说话我听着呢`,
+];
+
+// 老板说完话后 agent 的回应
+export const AGENT_REPLY = [
+  "收到收到，马上办 📝",
+  "明白，老板！这事儿我记在本子第一行",
+  "好嘞老板，交给我 👌",
+  "OK，方向我懂了，稳妥推进",
+];
+
+// agent 主动走近老板搭话
+export const BOSS_APPROACH = [
+  "老板，正好想找您对个进度 📋",
+  "老板辛苦了～咖啡给您续了一杯 ☕",
+  "老板，有个小想法，您有空听听？",
+  "老板，今天岛上樱花全开了，忙完想请您赏花 🌸",
+  "老板，上周的活儿都收尾了，正闲着呢～",
+];
+
 export function detectTemplate(brief: string): ProjectTemplate {
   for (const t of PROJECT_TEMPLATES) {
     if (t.match.test(brief)) return t;

@@ -634,6 +634,16 @@ body,
   }
 }
 
+/* 和面前 agent 对话按钮（暖白底，不跳） */
+.talkBtn {
+  bottom: 148px;
+  background: var(--site-surface-strong);
+  color: var(--site-fg);
+  border: 1px solid var(--site-border);
+  box-shadow: var(--ring), 0 8px 24px rgba(84, 62, 52, 0.18);
+  animation: none;
+}
+
 .officeFab {
   position: absolute;
   right: 14px;

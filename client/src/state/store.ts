@@ -35,6 +35,8 @@ interface WorldState {
   progress: Record<string, { startedAt: number; endsAt: number }>;
   roomDialogues: DialogueLine[];
   roomPanelOpen: boolean;
+  nearAgent: { id: string; name: string } | null;
+  lastTalkAgent: { id: string; until: number } | null;
 
   setConnected(v: boolean): void;
   setJoined(name: string): void;
@@ -57,6 +59,8 @@ interface WorldState {
   setProgress(taskId: string, startedAt: number, endsAt: number): void;
   pushRoomDialogue(l: DialogueLine): void;
   toggleRoomPanel(): void;
+  setNearAgent(a: { id: string; name: string } | null): void;
+  setLastTalkAgent(a: { id: string; until: number }): void;
 }
 
 export const useWorld = create<WorldState>((set) => ({
@@ -84,6 +88,8 @@ export const useWorld = create<WorldState>((set) => ({
   progress: {},
   roomDialogues: [],
   roomPanelOpen: false,
+  nearAgent: null,
+  lastTalkAgent: null,
 
   setConnected: (v) => set({ connected: v }),
   setJoined: (name) => set({ joined: true, selfName: name }),
@@ -110,4 +116,6 @@ export const useWorld = create<WorldState>((set) => ({
   setProgress: (taskId, startedAt, endsAt) => set((s) => ({ progress: { ...s.progress, [taskId]: { startedAt, endsAt } } })),
   pushRoomDialogue: (l) => set((s) => ({ roomDialogues: [...s.roomDialogues.slice(-200), l] })),
   toggleRoomPanel: () => set((s) => ({ roomPanelOpen: !s.roomPanelOpen })),
+  setNearAgent: (a) => set({ nearAgent: a }),
+  setLastTalkAgent: (a) => set({ lastTalkAgent: a }),
 }));

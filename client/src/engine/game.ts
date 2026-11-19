@@ -133,6 +133,7 @@ export function startGame(container: HTMLElement): GameHandle {
     if (e.code === "KeyE") {
       const st = useWorld.getState();
       if (st.roomPrompt) roomHost.doorAction();
+      else if (st.nearAgent) roomHost.talkToNearby();
       else if (st.inRoom) st.toggleRoomPanel();
     }
     if (e.code.startsWith("Digit")) {

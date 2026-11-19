@@ -38,9 +38,11 @@ function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boole
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    // 房间内说话 = 老板发言（气泡 + PM 过来回应）
+    // 房间内说话 = 老板发言；45s 内聊过的 agent 优先接话
     if (useWorld.getState().inRoom) {
-      sendRoomSay(t);
+      const partner = useWorld.getState().lastTalkAgent;
+      const agentId = partner && partner.until > Date.now() ? partner.id : undefined;
+      sendRoomSay(t, agentId);
     } else if (/种|盖|建|修|铺|挖|清空|围栏|栅栏|帮助|help/i.test(t)) {
       sendAiBuild(t);
     } else {
@@ -129,6 +131,7 @@ export default function App() {
   const toggleView = useWorld((s) => s.toggleView);
   const inRoom = useWorld((s) => s.inRoom);
   const roomPrompt = useWorld((s) => s.roomPrompt);
+  const nearAgent = useWorld((s) => s.nearAgent);
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -174,6 +177,11 @@ export default function App() {
           {roomPrompt && (
             <button className="doorBtn" onClick={() => roomHost.doorAction()}>
               {roomPrompt === "enter" ? "🚪 进入办公室（E）" : "🚪 离开办公室（E）"}
+            </button>
+          )}
+          {!roomPrompt && nearAgent && (
+            <button className="doorBtn talkBtn" onClick={() => roomHost.talkToNearby()}>
+              💬 和 {nearAgent.name} 聊聊（E）
             </button>
           )}
           <Toaster />

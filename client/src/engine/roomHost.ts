@@ -6,7 +6,7 @@ import { useWorld } from "../state/store";
 import { buildOfficeRoom, roomBlocked } from "../scene/office/room";
 import { createOfficeAgent, animateOfficeAgent, OfficeAgentRig } from "../scene/office/agents";
 import { charSystem, setArrivedEmitter } from "../scene/office/agentSystem";
-import { sendRoomArrived, sendRoomJoin, sendRoomLeave } from "../net/socket";
+import { sendRoomArrived, sendRoomJoin, sendRoomLeave, sendRoomTalkTo } from "../net/socket";
 import { clientWorld } from "./world";
 
 interface LabelApi {
@@ -245,11 +245,19 @@ class RoomHost {
 
     charSystem.update(Math.min(dt, 0.05));
     const now = Date.now();
+    let near: { id: string; name: string } | null = null;
+    let nearD = Infinity;
+    const self = this.deps.getSelf();
     for (const [id, entry] of this.rigs) {
       const st = charSystem.states.get(id);
       if (!st) continue;
       animateOfficeAgent(entry.rig, st, entry.info, time);
       labels.setLabel(`agent-${id}`, entry.info.name, st.x, st.y + 1.15, st.z, "nameTag", 40);
+      const dist = Math.hypot(st.x - self.x, st.z - self.z);
+      if (dist < 2.4 && dist < nearD) {
+        nearD = dist;
+        near = { id, name: entry.info.name };
+      }
       const until = this.bubbles.get(id);
       if (until && until > now) {
         const bubble = this.bubbleHtml(entry.info, now);
@@ -259,6 +267,18 @@ class RoomHost {
         labels.removeLabel(`bubble-${id}`);
       }
     }
+    // 最近 agent 变化才写 store（避免每帧触发渲染）
+    const st = useWorld.getState();
+    if (st.nearAgent?.id !== (near?.id ?? null)) st.setNearAgent(near);
+  }
+
+  /** E 键/按钮：和面前最近的 agent 开聊 */
+  talkToNearby() {
+    const near = useWorld.getState().nearAgent;
+    if (!near) return;
+    sendRoomTalkTo(near.id);
+    useWorld.getState().setLastTalkAgent({ id: near.id, until: Date.now() + 45_000 });
+    useWorld.setState({ roomPanelOpen: false });
   }
 
   private bubbleHtml(info: AgentInfo, _now: number): string {

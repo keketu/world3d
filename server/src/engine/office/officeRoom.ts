@@ -46,8 +46,18 @@ export class OfficeRoom {
     return this.orch.assignProject(brief);
   }
 
-  bossSay(text: string) {
-    return this.orch.bossChatter(text);
+  /** 老板走到 agent 面前发起对话 */
+  talkTo(agentId: string, player: { id: string; x: number; z: number }) {
+    return this.orch.talkTo(agentId, player);
+  }
+
+  /** 老板说话：45s 内聊过的 agent 优先接话，否则 PM 出场 */
+  bossSpeak(playerId: string, text: string, agentId?: string) {
+    return this.orch.bossSpeak(playerId, text, agentId);
+  }
+
+  hasAgent(agentId: string) {
+    return this.roster.agents.has(agentId);
   }
 
   onArrived(agentId: string, orderId: string) {

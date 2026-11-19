@@ -88,6 +88,9 @@ const emitToRoom = (ev: string, payload: unknown) => {
   for (const p of presence.playersInRoom(OFFICE_ROOM_ID)) toSocket(p.socketId, wired, payload);
 };
 officeRoom.attach(emitToRoom);
+// 编排器环境行为需要房间内玩家位置（agent 主动走近老板搭话）
+officeRoom.orch.playerProvider = () =>
+  presence.playersInRoom(OFFICE_ROOM_ID).map((p) => ({ id: p.id, x: p.x, z: p.z }));
 
 /** 跨空间事件过滤：同一空间（同房间或同为户外）才收 player:join/leave */
 function emitSameSpace(target: Player | null, event: string, payload: unknown) {
@@ -283,12 +286,21 @@ io.on("connection", (socket: Socket) => {
     void officeRoom.assign(text.slice(0, 120));
   });
 
-  socket.on("room:say", ({ text }: { text: string }) => {
+  socket.on("room:talkTo", ({ agentId }: { agentId: string }) => {
+    const p = playerId ? presence.get(playerId) : null;
+    if (!p || p.roomId !== OFFICE_ROOM_ID) return;
+    const id = String(agentId ?? "");
+    if (!officeRoom.hasAgent(id) || id === "boss") return;
+    void officeRoom.talkTo(id, { id: p.id, x: p.x, z: p.z });
+  });
+
+  socket.on("room:say", ({ text, agentId }: { text: string; agentId?: string }) => {
     const p = playerId ? presence.get(playerId) : null;
     if (!p || p.roomId !== OFFICE_ROOM_ID) return;
     const t = String(text ?? "").trim();
     if (!t) return;
-    void officeRoom.bossSay(t.slice(0, 120));
+    const aid = agentId && officeRoom.hasAgent(String(agentId)) ? String(agentId) : undefined;
+    void officeRoom.bossSpeak(p.id, t.slice(0, 120), aid);
   });
 });
 

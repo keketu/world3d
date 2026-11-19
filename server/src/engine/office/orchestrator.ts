@@ -12,7 +12,7 @@ import {
 import { OfficeRoster, AgentRuntime } from "./roster.js";
 import { Brain, PlannedTask } from "./brain.js";
 import { ScriptedBrain } from "./scriptedBrain.js";
-import { AMBIENT_CHAT, pick } from "./scenarios.js";
+import { AGENT_GREET, AGENT_BUSY, AGENT_REPLY, BOSS_APPROACH, AMBIENT_CHAT, pick } from "./scenarios.js";
 
 /** 编排器所需的持久化接口（由 world3d Db 实现 office 表） */
 export interface OfficeDb {
@@ -43,6 +43,10 @@ export class Orchestrator {
 
   private queue: QueuedProject[] = [];
   private pmBusy = false;
+  /** 房间内玩家位置提供者（index.ts 注入 presence 查询） */
+  playerProvider: (() => Array<{ id: string; x: number; z: number }>) | null = null;
+  /** 老板与某 agent 的进行中对话（玩家说话优先回给 TA） */
+  private partners = new Map<string, { agentId: string; until: number }>();
   private orderSeq = 0;
   private arrivedWaiters = new Map<string, () => void>();
   private ambientTimer: NodeJS.Timeout | null = null;
@@ -174,6 +178,75 @@ export class Orchestrator {
     await new Promise((r) => setTimeout(r, line.holdMs));
   }
 
+  /** 轻量说话：用于与老板的闲聊——working 的 agent 保持打字不打断，idle 的说完回归 idle */
+  private async sayCasual(
+    agentId: string,
+    text: string,
+    opts: { holdMs?: number } = {}
+  ) {
+    const line: DialogueLine = {
+      id: randomUUID(),
+      ts: Date.now(),
+      agentId,
+      text,
+      kind: "discuss",
+      holdMs: opts.holdMs ?? Math.max(2400, Math.min(4600, text.length * 180)),
+    };
+    this.db.insertDialogue(line);
+    this.emit("dialogue:line", line);
+    const a = this.world.get(agentId);
+    const wasIdle = a.activity === "idle";
+    if (wasIdle) this.world.setActivity(agentId, "talking");
+    await new Promise((r) => setTimeout(r, line.holdMs));
+    if (wasIdle) this.world.setActivity(agentId, "idle");
+  }
+
+  /** 老板走到某 agent 面前发起对话（E 键触发） */
+  async talkTo(agentId: string, player: { id: string; x: number; z: number }) {
+    const a = this.world.get(agentId);
+    if (a.role === "boss") return;
+    this.partners.set(player.id, { agentId, until: Date.now() + 45_000 });
+    await this.face(a, { x: player.x, z: player.z });
+    if (a.activity === "working") {
+      await this.sayCasual(a.id, pick(AGENT_BUSY(a.currentTask ?? "手头的活")));
+    } else if (a.activity === "idle") {
+      await this.sayCasual(a.id, pick(AGENT_GREET[a.role] ?? ["老板好，有什么吩咐？"]));
+    } else {
+      await this.sayCasual(a.id, "稍等哈老板，手头这一步一收尾就找您聊～");
+    }
+  }
+
+  /** 老板回话：优先回给最近聊过的 agent，否则 PM 出场（bossChatter） */
+  async replyTo(agentId: string, text: string) {
+    const a = this.world.get(agentId);
+    const player = this.playerProvider?.().find(() => true);
+    if (player) await this.face(a, { x: player.x, z: player.z });
+    await this.sayCasual(a.id, pick(AGENT_REPLY));
+    void text;
+  }
+
+  /** agent 主动走近老板搭话（环境行为） */
+  private async approachPlayer(player: { id: string; x: number; z: number }) {
+    const idle = [...this.world.agents.values()].filter(
+      (a) => a.role !== "boss" && a.role !== "pm" && a.activity === "idle" && a.seated
+    );
+    if (idle.length === 0) return;
+    const a = pick(idle);
+    const from = this.lastPos.get(a.id) ?? a.homeDesk.seat;
+    const dx = player.x - from.x;
+    const dz = player.z - from.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const target = { x: player.x - (dx / d) * 1.4, z: player.z - (dz / d) * 1.4 };
+    this.partners.set(player.id, { agentId: a.id, until: Date.now() + 45_000 });
+    await this.standUp(a);
+    this.world.setActivity(a.id, "walking");
+    await this.walkTo(a, target, { x: player.x, z: player.z });
+    await this.sayCasual(a.id, pick(BOSS_APPROACH));
+    await this.walkTo(a, a.homeDesk.seat, { x: a.homeDesk.desk.x, z: a.homeDesk.desk.z - 3 });
+    await this.sitAt(a, a.homeDesk.seat);
+    this.world.setActivity(a.id, "idle");
+  }
+
   // ---------- 老板下单 ----------
 
   async assignProject(brief: string) {
@@ -190,6 +263,18 @@ export class Orchestrator {
     this.queue.push({ project, tasks: [] });
     this.emit("notify", { text: `📋 新项目进入队列：「${name}」` });
     this.pumpQueue();
+  }
+
+  /** 老板说话：45s 内聊过的 agent 优先接话，否则 PM 出场 */
+  async bossSpeak(playerId: string, text: string, agentId?: string) {
+    const partner = this.partners.get(playerId);
+    const target = agentId ?? (partner && partner.until > Date.now() ? partner.agentId : null);
+    if (target && this.world.agents.has(target) && target !== "boss") {
+      this.partners.set(playerId, { agentId: target, until: Date.now() + 45_000 });
+      await this.replyTo(target, text);
+      return;
+    }
+    await this.bossChatter(text);
   }
 
   /** 老板闲聊：PM 过来回应一句 */
@@ -481,6 +566,13 @@ export class Orchestrator {
     if (Math.random() > 0.45) return;
     this.ambientRunning = true;
     try {
+      // 优先：房间里有玩家 → 空闲 agent 主动走近搭话（不打断项目流）
+      const players = this.playerProvider?.() ?? [];
+      if (players.length > 0 && Math.random() < 0.55) {
+        console.log("[orch] approach player attempt");
+        await this.approachPlayer(pick(players));
+        return;
+      }
       const a = pick(idleAgents);
       if (Math.random() < 0.55) {
         // 去咖啡角
