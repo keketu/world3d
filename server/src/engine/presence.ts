@@ -14,6 +14,8 @@ export interface Player extends PlayerInfo {
   roomId: string | null;
   /** 进房前的户外位置，离开房间时恢复 */
   outdoor: { x: number; y: number; z: number; rotY: number } | null;
+  /** 登录账号 id（游客为 null）。造物归属用 u:<userId>，跨会话稳定 */
+  userId: string | null;
 }
 
 export class Presence {
@@ -30,7 +32,7 @@ export class Presence {
     }
   }
 
-  join(name: string, socketId: string, spawn: { x: number; y: number; z: number }): Player {
+  join(name: string, socketId: string, spawn: { x: number; y: number; z: number }, userId: string | null = null): Player {
     const id = randomUUID().slice(0, 8);
     const color = PALETTE[this.players.size % PALETTE.length];
     const p: Player = {
@@ -46,9 +48,15 @@ export class Presence {
       lastMove: Date.now(),
       roomId: null,
       outdoor: null,
+      userId,
     };
     this.players.set(id, p);
     return p;
+  }
+
+  /** 按 userId 找在线玩家（封禁踢线用） */
+  findByUserId(userId: string): Player | null {
+    return [...this.players.values()].find((p) => p.userId === userId) ?? null;
   }
 
   leave(id: string): Player | null {

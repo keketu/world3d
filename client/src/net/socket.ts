@@ -76,6 +76,12 @@ export function connect(): Socket {
     useWorld.getState().pushChat(m);
   });
 
+  // 管理员封禁 → 踢下线，退回登录页
+  socket.on("account:kicked", ({ reason }: { reason?: string }) => {
+    useWorld.getState().logout();
+    useWorld.getState().pushToast(reason || "账号已被封禁");
+  });
+
   socket.on("object:added", (o: WorldObject) => {
     useWorld.getState().addObject(o);
   });
@@ -171,9 +177,10 @@ export function sendRoomSay(text: string, agentId?: string) {
 
 export function join(name: string, onHello: (h: HelloPayload) => void) {
   if (!socket) connect();
-  socket!.emit("join", { name }, (h: HelloPayload) => {
+  const token = useWorld.getState().auth.token;
+  socket!.emit("join", { name, token: token ?? undefined }, (h: HelloPayload) => {
     handleHello(h); // ack 与事件两条路径统一处理
-    useWorld.getState().setJoined(name);
+    useWorld.getState().setJoined(h.self.name || name);
     onHello(h);
   });
 }

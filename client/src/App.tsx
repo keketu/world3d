@@ -105,6 +105,8 @@ function TopBar() {
   const setTier = useWorld((s) => s.setTier);
   const viewMode = useWorld((s) => s.viewMode);
   const toggleView = useWorld((s) => s.toggleView);
+  const auth = useWorld((s) => s.auth);
+  const logout = useWorld((s) => s.logout);
   const TIER_LABEL = { low: "流畅", mid: "均衡", high: "高清" } as const;
 
   return (
@@ -112,6 +114,15 @@ function TopBar() {
       <div className="brand">🌍 小世界 <span className="sub">world3d</span></div>
       <div className={`connPill ${connected ? "on" : "off"}`}>{connected ? "● 已连接" : "○ 连接中"}</div>
       <div className="playersPill">👥 {players.length + 1}</div>
+      {auth.user && (
+        <button
+          className="toggleBtn on"
+          title="退出登录（回到账号页）"
+          onClick={() => logout()}
+        >
+          {auth.user.role === "admin" ? "👑" : "🎫"} {auth.user.name} · 退出
+        </button>
+      )}
       <button className={`toggleBtn ${showOwnerLabels ? "on" : ""}`} onClick={toggleOwnerLabels} title="显示每个造物的创建者">
         ✍️ 产权标注
       </button>
@@ -156,10 +167,23 @@ export default function App() {
     });
   };
 
+  // 静默恢复登录态（localStorage 令牌 → /api/auth/me）
+  useEffect(() => {
+    const token = localStorage.getItem("w3d_token");
+    if (!token) return;
+    fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.ok) useWorld.getState().setAuth(d.user, token);
+        else useWorld.getState().setAuth(null, null);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="app">
       <div ref={containerRef} className="canvasHost" />
-      {!joined && <JoinDialog onJoin={handleJoin} />}
+      {!joined && <AuthCard onJoin={handleJoin} />}
       {joined && (
         <div className="ui">
           <TopBar />
@@ -203,31 +227,126 @@ export default function App() {
   );
 }
 
-function JoinDialog({ onJoin }: { onJoin: (name: string) => void }) {
+function AuthCard({ onJoin }: { onJoin: (name: string) => void }) {
+  const auth = useWorld((s) => s.auth);
+  const setAuth = useWorld((s) => s.setAuth);
+  const logout = useWorld((s) => s.logout);
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
+  const [pass, setPass] = useState("");
+  const [guestName, setGuestName] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
   const rand = () => `旅人_${Math.floor(Math.random() * 900 + 100)}`;
+
+  const submit = async () => {
+    setMsg("");
+    const n = name.trim();
+    if (!n || !pass) return setMsg("请输入用户名和密码");
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/auth/${mode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: n, password: pass }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setMsg(data.reason || "失败了，再试一次");
+        return;
+      }
+      setAuth(data.user, data.token);
+      onJoin(data.user.name);
+    } catch {
+      setMsg("网络开小差了，再试一次");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 已登录：欢迎回来
+  if (auth.user) {
+    return (
+      <div className="joinOverlay">
+        <div className="joinCard">
+          <div className="joinTitle">🌸 欢迎回来</div>
+          <div className="joinSub">
+            {auth.user.role === "admin" ? "👑 管理员 " : "🎫 "}
+            {auth.user.name}，你的小岛一直在等你
+          </div>
+          <button className="joinBtn" onClick={() => onJoin(auth.user!.name)}>
+            进入世界 →
+          </button>
+          <div className="joinTips">
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                logout();
+              }}
+            >
+              切换账号 / 退出登录
+            </a>
+            <br />
+            登录后造物永久归属你的账号，换设备也能继续
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="joinOverlay">
       <div className="joinCard">
         <div className="joinTitle">🌸 欢迎来到小世界</div>
         <div className="joinSub">多人共享的唯美小岛 —— 用 AI 种树盖房造园</div>
+        <div className="authTabs">
+          <button className={`authTab ${mode === "login" ? "on" : ""}`} onClick={() => { setMode("login"); setMsg(""); }}>
+            登录
+          </button>
+          <button className={`authTab ${mode === "register" ? "on" : ""}`} onClick={() => { setMode("register"); setMsg(""); }}>
+            注册
+          </button>
+        </div>
         <input
           className="joinInput"
-          placeholder={rand()}
+          placeholder="用户名（2-12 位中英文/数字）"
           value={name}
           maxLength={12}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onJoin(name.trim() || rand());
-          }}
           autoFocus
         />
-        <button className="joinBtn" onClick={() => onJoin(name.trim() || rand())}>
-          进入世界 →
+        <input
+          className="joinInput"
+          type="password"
+          placeholder="密码（至少 4 位）"
+          value={pass}
+          maxLength={64}
+          onChange={(e) => setPass(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submit();
+          }}
+        />
+        {msg && <div className="authMsg">{msg}</div>}
+        <button className="joinBtn" disabled={busy} onClick={() => void submit()}>
+          {busy ? "请稍候…" : mode === "login" ? "登录并进入 →" : "注册并进入 →"}
         </button>
+        <div className="guestRow">
+          <input
+            className="guestInput"
+            placeholder={rand()}
+            value={guestName}
+            maxLength={12}
+            onChange={(e) => setGuestName(e.target.value)}
+          />
+          <button className="guestBtn" onClick={() => onJoin(guestName.trim() || rand())}>
+            游客进入 →
+          </button>
+        </div>
         <div className="joinTips">
-          电脑：点击地面行走 · 选道具点地放置 · 走进办公楼逛逛<br />
-          手机：点击地面行走 · 选中道具点地放置 · 💬 聊天
+          游客造物只归本次会话；注册后造物永久归属账号
+          <br />
+          电脑：点击地面行走 · 选道具点地放置 · 走进办公楼逛逛
         </div>
       </div>
     </div>

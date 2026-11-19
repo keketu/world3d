@@ -5,12 +5,24 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Server, Socket } from "socket.io";
 import { randomUUID } from "node:crypto";
-import { HelloPayload, MoveInput, PlayerInfo, RoomHello, WorldObject, PROP_KINDS } from "@world3d/shared";
+import {
+  AdminStats,
+  AdminUserRow,
+  AuthUser,
+  HelloPayload,
+  MoveInput,
+  PlayerInfo,
+  RoomHello,
+  WorldObject,
+  PROP_KINDS,
+} from "@world3d/shared";
 import { World } from "./engine/world.js";
 import { Db } from "./db.js";
 import { Presence, Player } from "./engine/presence.js";
 import { Builder } from "./engine/builder.js";
 import { OfficeRoom, OFFICE_ROOM_ID } from "./engine/office/officeRoom.js";
+import { hashPassword, initAuth, issueToken, loginRateOk, verifyPassword, verifyToken, authFromReq, AuthedRequest } from "./auth.js";
+import { attestPublicKeyPem, buildMerkleRoot, initAttest, signObject, verifyObjectProof } from "./attest.js";
 
 // 平台（Render/Railway 等）会注入 PORT；本地默认 8788
 const PORT = Number(process.env.PORT ?? 8788);
@@ -32,11 +44,48 @@ if (fs.existsSync(clientDist)) {
   console.log(`[world3d] serving client from ${clientDist}`);
 }
 
-const db = new Db();
+const DATA_DIR = process.env.WORLD3D_DATA ?? path.resolve("data");
+const db = new Db(DATA_DIR);
+initAuth(DATA_DIR);
+initAttest(DATA_DIR);
 const world = new World();
 const presence = new Presence();
 const builder = new Builder(world, db);
 const officeRoom = new OfficeRoom(db);
+
+// ---------- 产权存证：签名走 db.insertObject 统一漏斗（手搓/AI/系统建筑全覆盖） ----------
+
+let placedSinceRoot = 0;
+function publishRoot(reason: string) {
+  const entries = [...world.objects.values()].map((o) => ({ id: o.id, creatorId: o.creatorId }));
+  const { root, count } = buildMerkleRoot(entries);
+  db.insertAttestRoot(root, count);
+  placedSinceRoot = 0;
+  console.log(`[attest] root published (${reason}) count=${count} root=${root.slice(0, 16)}…`);
+}
+db.onInsertObject = (o) => {
+  db.insertObjectProof(o.id, signObject(o.id, o.creatorId, o.createdAt));
+  if (++placedSinceRoot >= 50) publishRoot("batch");
+};
+db.onDeleteObject = (id) => db.deleteObjectProof(id);
+
+// 开服对账（延迟 3s：等办公楼 boot 插入完毕）：离线期间的变更若与最新公示根不一致 → 发布新根
+setTimeout(() => {
+  const entries = [...world.objects.values()].map((o) => ({ id: o.id, creatorId: o.creatorId }));
+  const latest = db.latestAttestRoot();
+  const current = buildMerkleRoot(entries);
+  if (!latest || latest.root !== current.root) publishRoot(latest ? "boot-diff" : "boot-init");
+}, 3000).unref?.();
+setInterval(() => publishRoot("interval"), 10 * 60_000).unref();
+
+/** admin 守卫：token 角色可能过期（被降权/封禁），实时查库 */
+function adminFromReq(req: AuthedRequest): AuthUser | null {
+  const auth = authFromReq(req);
+  if (!auth || auth.role !== "admin") return null;
+  const user = db.findUserById(auth.uid);
+  if (!user || user.banned || user.role !== "admin") return null;
+  return { id: user.id, name: user.name, role: user.role, createdAt: user.createdAt };
+}
 
 // 重放持久化数据
 for (const mod of db.loadMods()) world.mods.set(mod.id, { ...mod });
@@ -112,14 +161,188 @@ app.get("/api/state", (_req, res) => {
   });
 });
 
+// ---------- 账号 ----------
+
+const ipOf = (req: { socket: { remoteAddress?: string | null } }) => req.socket.remoteAddress ?? "?";
+
+app.post("/api/auth/register", (req, res) => {
+  if (!loginRateOk(ipOf(req))) return res.status(429).json({ ok: false, reason: "试得太频繁了，等一分钟再来" });
+  const name = String(req.body?.name ?? "").trim();
+  const pass = String(req.body?.password ?? "");
+  if (!/^[\u4e00-\u9fa5A-Za-z0-9_-]{2,12}$/.test(name)) return res.json({ ok: false, reason: "昵称需 2-12 位中英文/数字" });
+  if (pass.length < 4 || pass.length > 64) return res.json({ ok: false, reason: "密码至少 4 位" });
+  if (db.findUserByName(name)) return res.json({ ok: false, reason: "这个名字已被注册" });
+  const role = db.countUsers() === 0 ? "admin" : "user"; // 首位注册者即管理员
+  const row = db.createUser(name, hashPassword(pass), role);
+  const user: AuthUser = { id: row.id, name: row.name, role, createdAt: row.createdAt };
+  console.log(`[auth] register ${name} (${role})`);
+  res.json({ ok: true, token: issueToken(user), user });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  if (!loginRateOk(ipOf(req))) return res.status(429).json({ ok: false, reason: "试得太频繁了，等一分钟再来" });
+  const name = String(req.body?.name ?? "").trim();
+  const pass = String(req.body?.password ?? "");
+  const row = db.findUserByName(name);
+  if (!row || !verifyPassword(pass, row.passHash)) return res.json({ ok: false, reason: "用户名或密码不对" });
+  if (row.banned) return res.json({ ok: false, reason: "账号已被封禁，联系管理员解封" });
+  db.touchLogin(row.id);
+  const user: AuthUser = { id: row.id, name: row.name, role: row.role, createdAt: row.createdAt };
+  console.log(`[auth] login ${name}`);
+  res.json({ ok: true, token: issueToken(user), user });
+});
+
+app.get("/api/auth/me", (req: AuthedRequest, res) => {
+  const auth = authFromReq(req);
+  if (!auth) return res.status(401).json({ ok: false, reason: "登录已过期" });
+  const row = db.findUserById(auth.uid);
+  if (!row) return res.status(401).json({ ok: false, reason: "账号不存在" });
+  if (row.banned) return res.status(403).json({ ok: false, reason: "账号已被封禁" });
+  res.json({ ok: true, user: { id: row.id, name: row.name, role: row.role, createdAt: row.createdAt } });
+});
+
+// ---------- 产权存证（公开：任何人可验章） ----------
+
+app.get("/api/attest/root", (_req, res) => {
+  res.json({ root: db.latestAttestRoot(), publicKey: attestPublicKeyPem() });
+});
+
+app.get("/api/attest/object/:id", (req, res) => {
+  // 以账本（DB）为准验章，不用内存副本——这样外部直接改库也能立刻暴露
+  const o = db.getObjectRow(req.params.id);
+  const proof = db.getObjectProof(req.params.id);
+  if (!o || !proof) return res.json({ ok: false, reason: "查无此造物或未存证" });
+  res.json({
+    ok: true,
+    proof: {
+      objectId: o.id,
+      creatorId: o.creatorId,
+      creatorName: o.creatorName,
+      createdAt: o.createdAt,
+      sig: proof.sig,
+      valid: verifyObjectProof(o.id, o.creatorId, o.createdAt, proof.sig),
+    },
+  });
+});
+
+// ---------- 后台管理（admin） ----------
+
+app.get("/api/admin/stats", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const stats: AdminStats = {
+    users: db.countUsers(),
+    todayNewUsers: db.countTodayNewUsers(),
+    online: presence.players.size,
+    objects: world.objects.size,
+    projects: db.loadOfficeState().projects.length,
+    latestRoot: db.latestAttestRoot(),
+  };
+  res.json({ ok: true, stats });
+});
+
+app.get("/api/admin/users", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const q = String((req.query as { q?: string }).q ?? "");
+  const rows: AdminUserRow[] = db.listUsers(q).map((u) => ({
+    ...u,
+    online: !!presence.findByUserId(u.id),
+  }));
+  res.json({ ok: true, users: rows });
+});
+
+app.post("/api/admin/user/:id/role", (req: AuthedRequest, res) => {
+  const admin = adminFromReq(req);
+  if (!admin) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const role = req.body?.role === "admin" ? "admin" : "user";
+  if (req.params.id === admin.id && role !== "admin") return res.json({ ok: false, reason: "不能取消自己的管理员" });
+  const target = db.findUserById(req.params.id);
+  if (!target) return res.json({ ok: false, reason: "用户不存在" });
+  db.setUserRole(target.id, role);
+  console.log(`[admin] ${admin.name} set ${target.name} role=${role}`);
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/user/:id/ban", (req: AuthedRequest, res) => {
+  const admin = adminFromReq(req);
+  if (!admin) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const banned = !!req.body?.banned;
+  if (req.params.id === admin.id) return res.json({ ok: false, reason: "不能封禁自己" });
+  const target = db.findUserById(req.params.id);
+  if (!target) return res.json({ ok: false, reason: "用户不存在" });
+  db.setUserBanned(target.id, banned);
+  console.log(`[admin] ${admin.name} ${banned ? "banned" : "unbanned"} ${target.name}`);
+  if (banned) {
+    const online = presence.findByUserId(target.id);
+    if (online) {
+      toSocket(online.socketId, "account:kicked", { reason: "账号已被封禁" });
+      io.sockets.sockets.get(online.socketId)?.disconnect(true);
+    }
+  }
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/objects", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const { q = "", kind = "" } = req.query as { q?: string; kind?: string };
+  const list = [...world.objects.values()]
+    .filter(
+      (o) =>
+        (!q || o.creatorName.includes(q) || o.creatorId.includes(q) || o.kind.includes(q)) &&
+        (!kind || o.kind === kind)
+    )
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 300);
+  res.json({ ok: true, objects: list });
+});
+
+app.delete("/api/admin/object/:id", (req: AuthedRequest, res) => {
+  const admin = adminFromReq(req);
+  if (!admin) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const o = world.objects.get(req.params.id);
+  if (!o) return res.json({ ok: false, reason: "造物不存在" });
+  world.removeObject(o.id);
+  db.deleteObject(o.id);
+  io.emit("world:remove", { id: o.id, by: admin.id });
+  console.log(`[admin] ${admin.name} deleted object ${o.id} (${o.kind} by ${o.creatorName})`);
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/chatlog", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const before = Number((req.query as { before?: string }).before) || null;
+  const limit = Number((req.query as { limit?: string }).limit) || 50;
+  res.json({ ok: true, logs: db.listChatLogs(before, limit) });
+});
+
+app.get("/api/admin/projects", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  const s = db.loadOfficeState();
+  res.json({ ok: true, projects: s.projects, tasks: s.tasks });
+});
+
+app.get("/api/admin/attest", (req: AuthedRequest, res) => {
+  if (!adminFromReq(req)) return res.status(403).json({ ok: false, reason: "需要管理员权限" });
+  res.json({ ok: true, roots: db.listAttestRoots(), publicKey: attestPublicKeyPem() });
+});
+
 // ---------- Socket ----------
 io.on("connection", (socket: Socket) => {
   let playerId: string | null = null;
 
-  socket.on("join", ({ name }: { name: string }, ack?: (h: HelloPayload) => void) => {
-    const safeName = String(name ?? "").slice(0, 12) || `旅人_${socket.id.slice(0, 4)}`;
+  socket.on("join", ({ name, token }: { name: string; token?: string }, ack?: (h: HelloPayload) => void) => {
+    // 账号玩家：token 验证 → 昵称取账号名，造物归属跨会话稳定
+    let userId: string | null = null;
+    let displayName = String(name ?? "").slice(0, 12) || `旅人_${socket.id.slice(0, 4)}`;
+    const auth = verifyToken(token ?? null);
+    if (auth) {
+      const user = db.findUserById(auth.uid);
+      if (user && !user.banned) {
+        userId = user.id;
+        displayName = user.name.slice(0, 12);
+      }
+    }
     const spawn = world.findSpawn();
-    const player = presence.join(safeName, socket.id, spawn);
+    const player = presence.join(displayName, socket.id, spawn, userId);
     playerId = player.id;
 
     const hello: HelloPayload = {
@@ -135,13 +358,9 @@ io.on("connection", (socket: Socket) => {
     };
     ack?.(hello);
 
-    io.emit("chat", {
-      id: randomUUID(),
-      kind: "system",
-      from: "系统",
-      text: `👋 ${safeName} 进入了世界`,
-      ts: Date.now(),
-    });
+    const joinText = `👋 ${displayName} 进入了世界`;
+    io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: joinText, ts: Date.now() });
+    db.insertChatLog("system", "系统", userId ?? player.id, joinText);
     emitSameSpace(player, "player:join", presence.publicInfo(player));
   });
 
@@ -168,6 +387,8 @@ io.on("connection", (socket: Socket) => {
       if (!PROP_KINDS[kind] || Number.isNaN(x) || Number.isNaN(z)) return ack?.({ ok: false, reason: "参数无效" });
       const v = world.validatePlacement(kind, x, z);
       if (!v.ok) return ack?.({ ok: false, reason: v.reason });
+      // 归属：登录玩家用账号 id（跨会话稳定），游客用当次会话 id
+      const creatorId = p.userId ? `u:${p.userId}` : p.id;
       const row = world.addObject(
         {
           kind,
@@ -176,7 +397,7 @@ io.on("connection", (socket: Socket) => {
           z,
           rotY: Number(payload?.rotY ?? 0),
           scale: 1,
-          creatorId: p.id,
+          creatorId,
           creatorName: p.name,
           createdAt: Date.now(),
           params: {},
@@ -196,7 +417,8 @@ io.on("connection", (socket: Socket) => {
     if (!p || !id) return ack?.({ ok: false, reason: "参数无效" });
     const o = world.objects.get(String(id));
     if (!o) return ack?.({ ok: false, reason: "造物不存在" });
-    if (o.creatorId !== p.id) return ack?.({ ok: false, reason: "只能拆除自己创建的造物哦" });
+    const ownerKey = p.userId ? `u:${p.userId}` : p.id;
+    if (o.creatorId !== ownerKey) return ack?.({ ok: false, reason: "只能拆除自己创建的造物哦" });
     world.removeObject(o.id);
     db.deleteObject(o.id);
     io.emit("world:remove", { id: o.id, by: p.id });
@@ -208,7 +430,8 @@ io.on("connection", (socket: Socket) => {
     if (!p) return;
     const text = String(brief ?? "").trim();
     if (!text) return;
-    await builder.tryBuild(text.slice(0, 60), p.id, p.name, { x: p.x, z: p.z }, p.rotY);
+    const creatorId = p.userId ? `u:${p.userId}` : p.id;
+    await builder.tryBuild(text.slice(0, 60), creatorId, p.name, { x: p.x, z: p.z }, p.rotY);
   });
 
   socket.on("chat", ({ text }: { text: string }) => {
@@ -224,6 +447,7 @@ io.on("connection", (socket: Socket) => {
       text: t.slice(0, 120),
       ts: Date.now(),
     });
+    db.insertChatLog("player", p.name, p.userId ?? p.id, t.slice(0, 120));
   });
 
   socket.on("disconnect", () => {
@@ -232,13 +456,9 @@ io.on("connection", (socket: Socket) => {
     if (p) {
       if (p.roomId) emitToRoom("playerLeave", { id: p.id });
       emitSameSpace(p, "player:leave", { id: p.id, name: p.name });
-      io.emit("chat", {
-        id: randomUUID(),
-        kind: "system",
-        from: "系统",
-        text: `🚪 ${p.name} 离开了世界`,
-        ts: Date.now(),
-      });
+      const leaveText = `🚪 ${p.name} 离开了世界`;
+      io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
+      db.insertChatLog("system", "系统", p.userId ?? p.id, leaveText);
     }
   });
 
@@ -302,6 +522,7 @@ io.on("connection", (socket: Socket) => {
     const t = String(text ?? "").trim();
     if (!t) return;
     const aid = agentId && officeRoom.hasAgent(String(agentId)) ? String(agentId) : undefined;
+    db.insertChatLog("player", p.name, p.userId ?? p.id, t.slice(0, 120));
     // 老板的话进房间聊天流（其余成员；发送者客户端已本地回显，避免双条）
     for (const m of presence.playersInRoom(OFFICE_ROOM_ID)) {
       if (m.id === p.id) continue;

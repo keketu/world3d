@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { AgentInfo, ChatMessage, DialogueLine, PlayerInfo, ProjectInfo, TaskInfo, WorldMeta, WorldObject } from "@world3d/shared";
+import { AgentInfo, AuthUser, ChatMessage, DialogueLine, PlayerInfo, ProjectInfo, TaskInfo, WorldMeta, WorldObject } from "@world3d/shared";
 
 export type QualityTier = "low" | "mid" | "high";
 export type ViewMode = "third" | "first";
@@ -15,6 +15,8 @@ interface WorldState {
   meta: WorldMeta | null;
   selfId: string;
   selfName: string;
+  /** 登录账号（游客为 null） */
+  auth: { user: AuthUser | null; token: string | null };
   players: PlayerInfo[];
   chat: ChatMessage[];
   objects: WorldObject[];
@@ -40,6 +42,8 @@ interface WorldState {
 
   setConnected(v: boolean): void;
   setJoined(name: string): void;
+  setAuth(user: AuthUser | null, token: string | null): void;
+  logout(): void;
   setMeta(m: WorldMeta): void;
   setPlayers(v: PlayerInfo[]): void;
   pushChat(m: ChatMessage): void;
@@ -69,6 +73,7 @@ export const useWorld = create<WorldState>((set) => ({
   meta: null,
   selfId: "",
   selfName: "",
+  auth: { user: null, token: null },
   players: [],
   chat: [],
   objects: [],
@@ -93,6 +98,15 @@ export const useWorld = create<WorldState>((set) => ({
 
   setConnected: (v) => set({ connected: v }),
   setJoined: (name) => set({ joined: true, selfName: name }),
+  setAuth: (user, token) => {
+    if (token) localStorage.setItem("w3d_token", token);
+    else localStorage.removeItem("w3d_token");
+    set({ auth: { user, token } });
+  },
+  logout: () => {
+    localStorage.removeItem("w3d_token");
+    set({ auth: { user: null, token: null }, joined: false });
+  },
   setMeta: (m) => set({ meta: m }),
   setPlayers: (v) => set({ players: v }),
   pushChat: (m) => set((s) => ({ chat: [...s.chat.slice(-120), m] })),
