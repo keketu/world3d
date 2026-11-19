@@ -243,7 +243,7 @@ io.on("connection", (socket: Socket) => {
     if (!p) return ack?.({ ok: false, reason: "未加入世界" });
     if (p.roomId) return ack?.({ ok: false, reason: "已在房间内" });
     // 进房：记录户外位置，坐标切到房间门口
-    presence.setRoom(p.id, OFFICE_ROOM_ID, { x: 0, y: 0, z: 6.4 });
+    presence.setRoom(p.id, OFFICE_ROOM_ID, { x: 2.7, y: 0, z: 6.4 });
     // 让户外同伴移除自己的远程分身
     emitSameSpace({ ...p, roomId: null } as Player, "player:leave", { id: p.id, name: p.name });
     // 房间内成员收到新玩家

@@ -33,7 +33,7 @@ export class OfficeRoom {
     return {
       roomId: this.roomId,
       roomType: "office",
-      spawn: { x: DOOR.x, z: 6.4, rotY: Math.PI }, // 门内侧，面朝房间深处（离门 2m，避免立即弹「离开」）
+      spawn: { x: 2.7, z: 6.4, rotY: Math.PI }, // 门旁空地（避开沙发障碍区），面朝房间深处
       players: others,
       agents: this.roster.list(),
       projects: saved.projects,

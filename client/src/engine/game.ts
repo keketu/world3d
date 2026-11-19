@@ -538,13 +538,15 @@ export function startGame(container: HTMLElement): GameHandle {
         const nx = self.x + wx * speed * dt;
         const nz = self.z + wz * speed * dt;
         if (roomHost.active) {
-          // 房间模式：局部坐标 + 房间碰撞
-          if (!roomHost.movementBlocked(nx, self.z)) self.x = nx;
-          if (!roomHost.movementBlocked(self.x, nz)) self.z = nz;
+          // 房间模式：局部坐标 + 房间碰撞；若已卡在障碍里则放行移动（脱困）
+          const stuck = roomHost.movementBlocked(self.x, self.z);
+          if (stuck || !roomHost.movementBlocked(nx, self.z)) self.x = nx;
+          if (stuck || !roomHost.movementBlocked(self.x, nz)) self.z = nz;
           self.y = 0;
         } else {
-          if (!clientWorld.blockedAt(nx, self.z)) self.x = nx;
-          if (!clientWorld.blockedAt(self.x, nz)) self.z = nz;
+          const stuckOut = clientWorld.blockedAt(self.x, self.z);
+          if (stuckOut || !clientWorld.blockedAt(nx, self.z)) self.x = nx;
+          if (stuckOut || !clientWorld.blockedAt(self.x, nz)) self.z = nz;
           const ty = clientWorld.surfaceY(self.x, self.z);
           self.y += (ty - self.y) * Math.min(1, dt * 12);
         }
