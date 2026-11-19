@@ -1,3 +1,41 @@
+/* ============================================================
+   小世界 · 唯美化 UI —— 视觉主张：
+   「暖纸书页上的樱花庭园：温润衬线标题、樱花粉一笔点缀、
+    半透明暖白悬浮卡，与 3D 小岛融为一景」
+   规格参照 claude 设计系统（暖色中性 + 衬线标题 + ring 阴影），
+   accent 换樱花粉呼应世界造物；表面为毛玻璃以透出场景。
+   ============================================================ */
+
+:root {
+  /* 基底 token（改主题只动这里） */
+  --site-bg: #f5f4ed;
+  --site-surface: rgba(250, 249, 245, 0.84);
+  --site-surface-strong: rgba(252, 251, 247, 0.95);
+  --site-fg: #3d3a34;
+  --site-muted: #6b675f;
+  --site-tertiary: #928e83;
+  --site-border: rgba(232, 230, 220, 0.85);
+  --site-accent: #c65f76;
+  --site-accent-soft: #d9879c;
+  --site-accent-wash: rgba(217, 135, 156, 0.14);
+  --site-on-accent: #fdf9f7;
+  --site-success: #5f8f6e;
+  --site-radius: 14px;
+  --site-radius-ctl: 12px;
+  --site-space: 1;
+  --site-type: 1;
+  --site-motion: 1;
+  --site-font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --font-display: Georgia, "Times New Roman", "Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", serif;
+
+  /* 暖色 ring / whisper 阴影（不用冷灰） */
+  --ring: 0 0 0 1px rgba(198, 186, 166, 0.55);
+  --ring-strong: 0 0 0 1px rgba(198, 95, 118, 0.45);
+  --whisper: 0 10px 36px rgba(84, 62, 52, 0.16);
+  --whisper-deep: 0 18px 50px rgba(84, 62, 52, 0.22);
+  --motion: calc(180ms * var(--site-motion));
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -9,7 +47,8 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
-  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--site-font);
+  color: var(--site-fg);
 }
 
 .app {
@@ -25,6 +64,16 @@ body,
   touch-action: none;
 }
 
+.canvasHost canvas {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --site-motion: 0;
+  }
+}
+
 /* ---------- 虚拟摇杆 ---------- */
 .joyBase {
   position: absolute;
@@ -32,8 +81,8 @@ body,
   height: 112px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(255, 255, 255, 0.18);
-  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 253, 250, 0.2);
+  border: 2px solid rgba(255, 252, 248, 0.55);
   pointer-events: none;
   z-index: 8;
 }
@@ -44,21 +93,17 @@ body,
   height: 52px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(255, 255, 255, 0.75);
-  box-shadow: 0 4px 14px rgba(30, 50, 80, 0.25);
+  background: rgba(255, 252, 248, 0.85);
+  box-shadow: var(--ring), 0 4px 14px rgba(84, 62, 52, 0.25);
   pointer-events: none;
-}
-
-.canvasHost canvas {
-  display: block;
 }
 
 /* ---------- 加入对话框 ---------- */
 .joinOverlay {
   position: absolute;
   inset: 0;
-  background: rgba(20, 40, 60, 0.5);
-  backdrop-filter: blur(6px);
+  background: linear-gradient(160deg, rgba(64, 48, 46, 0.38), rgba(96, 62, 74, 0.32));
+  backdrop-filter: blur(7px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -66,61 +111,89 @@ body,
 }
 
 .joinCard {
-  background: white;
-  border-radius: 20px;
-  padding: 30px 36px;
-  width: 360px;
+  background: var(--site-surface-strong);
+  backdrop-filter: blur(14px);
+  border-radius: calc(var(--site-radius) + 6px);
+  border: 1px solid var(--site-border);
+  box-shadow: var(--whisper-deep);
+  padding: calc(34px * var(--site-space)) calc(40px * var(--site-space));
+  width: 380px;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(20, 50, 90, 0.3);
 }
 
 .joinTitle {
-  font-size: 22px;
-  font-weight: 800;
-  color: #2c3852;
-  margin-bottom: 6px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: calc(26px * var(--site-type));
+  line-height: 1.2;
+  color: var(--site-fg);
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
 }
 
 .joinSub {
-  font-size: 12px;
-  color: #8a95a9;
-  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--site-muted);
+  margin-bottom: 22px;
 }
 
 .joinInput {
   width: 100%;
-  border: 1.5px solid #dfe6ef;
-  border-radius: 12px;
-  padding: 11px 14px;
-  font-size: 14px;
+  border: 1px solid var(--site-border);
+  border-radius: var(--site-radius-ctl);
+  padding: 12px 14px;
+  font-size: 15px;
   text-align: center;
   outline: none;
   margin-bottom: 12px;
   font-family: inherit;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--site-fg);
+  box-shadow: var(--ring);
+  transition: border-color var(--motion), box-shadow var(--motion);
+}
+
+.joinInput::placeholder {
+  color: var(--site-tertiary);
 }
 
 .joinInput:focus {
-  border-color: #7ea6e0;
+  border-color: var(--site-accent-soft);
+  box-shadow: var(--ring-strong), 0 0 0 3px var(--site-accent-wash);
 }
 
 .joinBtn {
   width: 100%;
   border: none;
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: var(--site-radius-ctl);
+  padding: 13px;
   font-size: 15px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #4f9e7c, #2f8562);
-  color: white;
+  font-weight: 600;
+  letter-spacing: 1px;
+  background: var(--site-accent);
+  color: var(--site-on-accent);
   cursor: pointer;
   font-family: inherit;
+  box-shadow: var(--ring), 0 6px 20px rgba(198, 95, 118, 0.3);
+  transition: transform var(--motion), box-shadow var(--motion), background var(--motion);
+}
+
+.joinBtn:hover {
+  background: #bd5470;
+  transform: translateY(-1px);
+  box-shadow: var(--ring), 0 10px 26px rgba(198, 95, 118, 0.38);
+}
+
+.joinBtn:active {
+  transform: translateY(0);
 }
 
 .joinTips {
-  margin-top: 16px;
-  font-size: 11px;
-  color: #9aa5b8;
-  line-height: 1.8;
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--site-tertiary);
+  line-height: 1.9;
 }
 
 /* ---------- UI 覆盖层 ---------- */
@@ -141,70 +214,87 @@ body,
   left: 14px;
   right: 14px;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   pointer-events: auto;
 }
 
+.topBar > * {
+  box-shadow: var(--ring), 0 4px 16px rgba(84, 62, 52, 0.08);
+}
+
 .brand {
+  font-family: var(--font-display);
   font-size: 16px;
-  font-weight: 800;
-  color: #2c3852;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: var(--site-fg);
+  background: var(--site-surface);
+  backdrop-filter: blur(10px);
   padding: 7px 14px;
-  border-radius: 12px;
+  border-radius: var(--site-radius-ctl);
+  border: 1px solid var(--site-border);
 }
 
 .brand .sub {
+  font-family: var(--site-font);
   font-size: 11px;
-  font-weight: 500;
-  color: #8a95a9;
+  font-weight: 400;
+  letter-spacing: 0.12px;
+  color: var(--site-tertiary);
 }
 
 .connPill,
 .playersPill {
   font-size: 12px;
+  letter-spacing: 0.12px;
   padding: 7px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
+  border-radius: var(--site-radius-ctl);
+  background: var(--site-surface);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--site-border);
+  color: var(--site-muted);
 }
 
 .connPill.on {
-  color: #2f9e6e;
+  color: var(--site-success);
 }
 
 .connPill.off {
-  color: #b3b9c7;
+  color: var(--site-tertiary);
 }
 
 .toggleBtn {
-  border: 1px solid #dfe6ef;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 12px;
+  border: 1px solid var(--site-border);
+  background: var(--site-surface);
+  backdrop-filter: blur(10px);
+  border-radius: var(--site-radius-ctl);
   padding: 7px 12px;
   font-size: 12px;
+  letter-spacing: 0.12px;
   cursor: pointer;
-  color: #55647e;
+  color: var(--site-muted);
   font-family: inherit;
+  transition: background var(--motion), color var(--motion), border-color var(--motion);
 }
 
 .toggleBtn.on {
-  background: #fff0f6;
-  border-color: #f0b8cc;
-  color: #d8457c;
+  background: var(--site-accent-wash);
+  border-color: var(--site-accent-soft);
+  color: var(--site-accent);
   font-weight: 600;
 }
 
 .qualitySel {
   margin-left: auto;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
-  border-radius: 12px;
+  background: var(--site-surface);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--site-border);
+  border-radius: var(--site-radius-ctl);
   padding: 5px 8px;
   font-size: 12px;
-  color: #6c7a92;
+  letter-spacing: 0.12px;
+  color: var(--site-muted);
   display: flex;
   gap: 4px;
   align-items: center;
@@ -217,13 +307,14 @@ body,
   border-radius: 8px;
   cursor: pointer;
   font-size: 12px;
-  color: #6c7a92;
+  color: var(--site-muted);
   font-family: inherit;
+  transition: background var(--motion), color var(--motion);
 }
 
 .qBtn.on {
-  background: #2c3852;
-  color: white;
+  background: #423e37;
+  color: #faf9f5;
   font-weight: 600;
 }
 
@@ -234,6 +325,14 @@ body,
   bottom: 14px;
   width: 360px;
   pointer-events: auto;
+}
+
+.chatPanel.open {
+  background: var(--site-surface-strong);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--site-border);
+  border-radius: calc(var(--site-radius) + 2px);
+  box-shadow: var(--whisper-deep);
 }
 
 .chatList {
@@ -247,29 +346,32 @@ body,
 }
 
 .chatRow {
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(6px);
-  border-radius: 9px;
-  padding: 5px 10px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--site-surface);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  padding: 6px 11px;
   width: fit-content;
   max-width: 100%;
   word-break: break-all;
 }
 
 .chatRow.kind-ai {
-  background: rgba(238, 234, 252, 0.85);
+  background: var(--site-accent-wash);
+  border-color: rgba(217, 135, 156, 0.4);
 }
 
 .chatRow.kind-system {
-  background: rgba(255, 255, 255, 0.5);
-  color: #8a95a9;
+  background: rgba(250, 249, 245, 0.55);
+  border-color: transparent;
+  color: var(--site-tertiary);
 }
 
 .chatFrom {
-  font-weight: 700;
-  color: #3a6bb5;
+  font-weight: 600;
+  color: #8a6250;
 }
 
 .chatInputRow {
@@ -279,29 +381,42 @@ body,
 
 .chatInput {
   flex: 1;
-  border: 1.5px solid rgba(255, 255, 255, 0.8);
-  border-radius: 12px;
+  border: 1px solid var(--site-border);
+  border-radius: var(--site-radius-ctl);
   padding: 10px 13px;
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(8px);
   font-family: inherit;
-  box-shadow: 0 4px 16px rgba(40, 60, 100, 0.1);
+  color: var(--site-fg);
+  box-shadow: var(--ring), 0 4px 16px rgba(84, 62, 52, 0.08);
+  transition: border-color var(--motion), box-shadow var(--motion);
+}
+
+.chatInput::placeholder {
+  color: var(--site-tertiary);
 }
 
 .chatInput:focus {
-  border-color: #7ea6e0;
+  border-color: var(--site-accent-soft);
+  box-shadow: var(--ring-strong), 0 0 0 3px var(--site-accent-wash);
 }
 
 .chatSend {
   border: none;
-  background: #4f9e7c;
-  color: white;
-  border-radius: 12px;
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+  border-radius: var(--site-radius-ctl);
   width: 42px;
   font-size: 15px;
   cursor: pointer;
+  box-shadow: var(--ring), 0 4px 14px rgba(198, 95, 118, 0.28);
+  transition: background var(--motion);
+}
+
+.chatSend:hover {
+  background: #bd5470;
 }
 
 /* ---------- Hotbar ---------- */
@@ -312,10 +427,12 @@ body,
   transform: translateX(-50%);
   display: flex;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(8px);
+  background: var(--site-surface);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--site-border);
   padding: 6px;
-  border-radius: 14px;
+  border-radius: var(--site-radius);
+  box-shadow: var(--ring), 0 8px 24px rgba(84, 62, 52, 0.12);
 }
 
 .slot {
@@ -323,25 +440,30 @@ body,
   width: 46px;
   height: 46px;
   border-radius: 10px;
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.45);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background var(--motion), border-color var(--motion), transform var(--motion), box-shadow var(--motion);
+}
+
+.slot:hover {
+  background: rgba(255, 255, 255, 0.75);
 }
 
 .slot.on {
-  border-color: #2c3852;
-  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--site-accent-soft);
+  background: rgba(255, 255, 255, 0.92);
   transform: translateY(-3px);
+  box-shadow: var(--ring-strong), 0 6px 16px rgba(198, 95, 118, 0.22);
 }
 
-.slotCube {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.18), inset 3px 3px 0 rgba(255, 255, 255, 0.3);
+.slotIcon {
+  font-size: 22px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px rgba(84, 62, 52, 0.18));
 }
 
 .slotKey {
@@ -349,20 +471,51 @@ body,
   bottom: 1px;
   right: 4px;
   font-size: 9px;
-  color: #6c7a92;
+  letter-spacing: 0.12px;
+  color: var(--site-tertiary);
 }
 
 .hint {
   position: absolute;
-  bottom: 18px;
+  bottom: 84px;
   right: 16px;
-  font-size: 11px;
-  color: #5c6b84;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(6px);
-  padding: 6px 12px;
+  font-size: 12px;
+  letter-spacing: 0.12px;
+  color: var(--site-muted);
+  background: var(--site-surface);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--site-border);
+  padding: 7px 14px;
   border-radius: 999px;
   pointer-events: none;
+  box-shadow: var(--ring);
+}
+
+/* ---------- Toast ---------- */
+.toasts {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.toast {
+  font-size: 13px;
+  letter-spacing: 0.12px;
+  color: var(--site-fg);
+  background: var(--site-surface-strong);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--site-border);
+  border-left: 3px solid var(--site-accent-soft);
+  padding: 8px 16px;
+  border-radius: 999px;
+  box-shadow: var(--ring), 0 8px 24px rgba(84, 62, 52, 0.14);
 }
 
 /* ---------- 3D 标签 ---------- */
@@ -382,37 +535,42 @@ body,
 
 .nameTag {
   font-size: 12px;
-  font-weight: 700;
-  color: #fff;
-  background: rgba(30, 42, 62, 0.55);
-  padding: 2px 9px;
+  font-weight: 600;
+  letter-spacing: 0.12px;
+  color: #faf9f5;
+  background: rgba(61, 56, 50, 0.58);
+  backdrop-filter: blur(4px);
+  padding: 3px 10px;
   border-radius: 999px;
 }
 
 .nameTag.self {
-  background: rgba(43, 91, 168, 0.65);
+  background: rgba(198, 95, 118, 0.72);
 }
 
 .objTag .objLabel {
   display: inline-block;
   font-size: 11px;
   font-weight: 600;
-  color: #4a3d20;
-  background: rgba(255, 248, 220, 0.92);
-  border: 1px solid #e8d99a;
-  padding: 2px 8px;
+  letter-spacing: 0.12px;
+  color: #5c5443;
+  background: rgba(250, 249, 245, 0.92);
+  border: 1px solid #e3d9bd;
+  padding: 2px 9px;
   border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(84, 62, 52, 0.1);
 }
 
 .hoverTooltip {
   position: absolute;
   z-index: 20;
   pointer-events: none;
-  background: rgba(30, 42, 62, 0.88);
-  color: #fff;
+  background: rgba(48, 44, 40, 0.88);
+  color: #faf9f5;
   font-size: 12px;
-  padding: 6px 10px;
-  border-radius: 9px;
+  line-height: 1.5;
+  padding: 7px 11px;
+  border-radius: 10px;
   backdrop-filter: blur(6px);
   max-width: 260px;
 }
@@ -420,7 +578,8 @@ body,
 .hoverTooltip .t {
   display: block;
   font-size: 10px;
-  color: #b9c4d6;
+  letter-spacing: 0.12px;
+  color: #c9c3b8;
   margin-top: 2px;
 }
 
@@ -432,23 +591,24 @@ body,
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  border: none;
-  background: linear-gradient(135deg, #4f9e7c, #2f8562);
-  color: white;
-  font-size: 22px;
+  border: 1px solid var(--site-border);
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+  font-size: 21px;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(30, 80, 60, 0.35);
-  z-index: 15;
+  box-shadow: var(--ring), 0 8px 22px rgba(198, 95, 118, 0.38);
+  transition: transform var(--motion), background var(--motion);
+}
+
+.chatFab:hover {
+  background: #bd5470;
+  transform: translateY(-2px);
 }
 
 .chatClose {
-  position: absolute;
-  top: 6px;
-  right: 8px;
   border: none;
   background: transparent;
-  color: #8a95a9;
-  font-size: 14px;
+  color: var(--site-tertiary);
   cursor: pointer;
 }
 
@@ -457,9 +617,11 @@ body,
     display: none;
   }
 }
+
 /* 展开状态不依赖媒体查询（触摸设备才可能进入 open） */
 .chatPanel.open {
   display: flex;
+  flex-direction: column;
   position: fixed;
   left: 10px;
   right: 10px;
@@ -472,7 +634,8 @@ body,
 .chatBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 30, 50, 0.25);
+  background: rgba(64, 48, 46, 0.28);
+  backdrop-filter: blur(2px);
   z-index: 25;
   pointer-events: auto;
 }
@@ -482,8 +645,9 @@ body,
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
-  font-weight: 700;
-  color: #55647e;
+  font-weight: 600;
+  letter-spacing: 0.12px;
+  color: var(--site-muted);
   padding: 10px 12px 4px;
   cursor: pointer;
   user-select: none;
@@ -493,7 +657,8 @@ body,
   font-size: 13px;
   padding: 8px 14px;
   border-radius: 10px;
-  background: #eef2f8;
+  background: rgba(232, 230, 220, 0.6);
+  color: var(--site-muted);
 }
 
 @media (pointer: coarse) {
@@ -510,6 +675,9 @@ body,
     width: 40px;
     height: 40px;
   }
+  .slotIcon {
+    font-size: 19px;
+  }
   .hint {
     display: none;
   }
@@ -520,6 +688,6 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d5dde8;
+  background: #d1cfc5;
   border-radius: 999px;
 }

@@ -169,8 +169,8 @@ function JoinDialog({ onJoin }: { onJoin: (name: string) => void }) {
   return (
     <div className="joinOverlay">
       <div className="joinCard">
-        <div className="joinTitle">🌍 欢迎来到小世界</div>
-        <div className="joinSub">多人共享的唯美小世界 —— 用 AI 种树、盖房、造园</div>
+        <div className="joinTitle">🌸 欢迎来到小世界</div>
+        <div className="joinSub">多人共享的唯美小岛 —— 用 AI 种树盖房造园</div>
         <input
           className="joinInput"
           placeholder={rand()}
@@ -186,8 +186,8 @@ function JoinDialog({ onJoin }: { onJoin: (name: string) => void }) {
           进入世界 →
         </button>
         <div className="joinTips">
-          电脑：WASD 走动 · 选道具左键点地面放置<br />
-          手机：左侧摇杆走动 · 点地面放置 · 💬 展开聊天
+          电脑：WASD 走动 · 选道具点地面放置<br />
+          手机：摇杆走动 · 点地面放置 · 💬 展开聊天
         </div>
       </div>
     </div>
