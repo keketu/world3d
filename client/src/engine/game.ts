@@ -4,7 +4,7 @@ import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, WATER_LEVEL } from "
 import { clientWorld } from "./world";
 import { buildTerrain, buildWater } from "./terrain";
 import { buildProp } from "./props";
-import { createAvatar, animateAvatar, Avatar } from "../scene/avatar";
+import { createAvatar, animateAvatar, setAvatarOffline, Avatar } from "../scene/avatar";
 import { useWorld } from "../state/store";
 import { qualityFor, applyQuality, detectTier } from "./quality";
 import { sendMove } from "../net/socket";
@@ -638,13 +638,19 @@ export function startGame(container: HTMLElement): GameHandle {
     av.group.userData.personId = p.id; // 点击人物：射线命中后沿 parent 链找到 id
     av.group.userData.personKind = "player";
     av.group.position.set(p.x, p.y, p.z);
+    // 离线驻留的小人（断线留原地的）：半透明 + 💤 名牌
+    const off = p.online === false;
+    if (off) {
+      setAvatarOffline(av, true);
+      av.group.userData.offlineDwelling = true;
+    }
     scene.add(av.group);
     clientWorld.remotes.set(p.id, {
       group: av,
       target: { x: p.x, y: p.y, z: p.z, rotY: p.rotY },
       info: p,
     });
-    setLabel(`tag-${p.id}`, p.name, p.x, p.y + 1.4, p.z, "nameTag");
+    setLabel(`tag-${p.id}`, off ? `💤 ${p.name}` : p.name, p.x, p.y + 1.4, p.z, off ? "nameTag offline" : "nameTag");
   };
   clientWorld.remoteRemover = (id: string) => {
     const r = clientWorld.remotes.get(id);
@@ -853,8 +859,14 @@ export function startGame(container: HTMLElement): GameHandle {
       const dRot = ((r.target.rotY - g.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
       g.rotation.y += dRot * Math.min(1, dt * 12);
       const dist = Math.hypot(r.target.x - g.position.x, r.target.z - g.position.z);
-      animateAvatar(av, dist > 0.1 ? "walk" : (r.info.anim === "walk" ? "walk" : "idle"), time);
-      setLabel(`tag-${r.info.id}`, r.info.name, g.position.x, g.position.y + 1.4, g.position.z, "nameTag");
+      // 离线驻留（快照带 online:false）：小人半透明💤站原地不动；复活自动恢复
+      const off = r.info.online === false;
+      if (!!g.userData.offlineDwelling !== off) {
+        g.userData.offlineDwelling = off;
+        setAvatarOffline(av, off);
+      }
+      animateAvatar(av, !off && (dist > 0.1 || r.info.anim === "walk") ? "walk" : "idle", time);
+      setLabel(`tag-${r.info.id}`, off ? `💤 ${r.info.name}` : r.info.name, g.position.x, g.position.y + 1.4, g.position.z, off ? "nameTag offline" : "nameTag");
     }
 
     // 5. 水面轻微波动
@@ -1031,6 +1043,12 @@ export function startGame(container: HTMLElement): GameHandle {
       moveTarget = null;
       roomPath = null;
     },
+    walkState: () => ({
+      moveTarget: moveTarget ? { x: Math.round(moveTarget.x * 10) / 10, z: Math.round(moveTarget.z * 10) / 10 } : null,
+      roomPath: roomPath ? roomPath.length : null,
+      approach: approach ? `${approach.kind}:${approach.id}` : null,
+      chatOpen: !!document.querySelector(".chatPanel.open"),
+    }),
     store: useWorld,
   };
 

@@ -119,3 +119,14 @@ export function animateAvatar(av: Avatar, anim: "idle" | "walk", time: number) {
     av.armR.rotation.x = -Math.sin(time * 2.2) * 0.06;
   }
 }
+
+/** 离线驻留外观：整体半透明（材质为每实例独立创建，可安全改；仅状态切换时调用一次） */
+export function setAvatarOffline(av: Avatar, off: boolean) {
+  av.group.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
+    if (m && typeof m.opacity === "number") {
+      m.transparent = off;
+      m.opacity = off ? 0.45 : 1;
+    }
+  });
+}

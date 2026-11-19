@@ -121,6 +121,11 @@ export class Db {
         createdAt INTEGER,
         FOREIGN KEY(ownerId) REFERENCES users(id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS player_pos (
+        userId TEXT PRIMARY KEY,
+        x REAL, y REAL, z REAL, rotY REAL,
+        updatedAt INTEGER
+      );
       CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_log(ts);
       CREATE INDEX IF NOT EXISTS idx_chat_from ON chat_log(fromId);
       CREATE INDEX IF NOT EXISTS idx_users_created ON users(createdAt);
@@ -479,6 +484,23 @@ export class Db {
     this.db
       .prepare(`DELETE FROM chat_log WHERE id <= (SELECT id FROM chat_log ORDER BY id DESC LIMIT 1 OFFSET 5000)`)
       .run();
+  }
+
+  /** 登录玩家最后位置（服务重启后上线仍从原地「复活」） */
+  savePlayerPos(userId: string, x: number, y: number, z: number, rotY: number) {
+    this.db
+      .prepare(
+        `INSERT INTO player_pos (userId,x,y,z,rotY,updatedAt) VALUES (?,?,?,?,?,?)
+         ON CONFLICT(userId) DO UPDATE SET x=excluded.x,y=excluded.y,z=excluded.z,rotY=excluded.rotY,updatedAt=excluded.updatedAt`
+      )
+      .run(userId, x, y, z, rotY, Date.now());
+  }
+
+  getPlayerPos(userId: string): { x: number; y: number; z: number; rotY: number } | null {
+    const r = this.db.prepare(`SELECT x,y,z,rotY FROM player_pos WHERE userId=?`).get(userId) as
+      | { x: number; y: number; z: number; rotY: number }
+      | undefined;
+    return r ?? null;
   }
 
   listChatLogs(before: number | null, limit: number): ChatLogRow[] {

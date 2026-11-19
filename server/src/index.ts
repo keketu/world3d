@@ -200,6 +200,25 @@ function releasePossessionOnExit(playerId: string) {
   if (officeRoom.possessorOf(playerId)) officeRoom.releaseByPlayer(playerId, true);
 }
 
+/**
+ * 离开（断线/主动退出/换身份统一路径）：小人**留在原地驻留**为离线状态（半透明💤），
+ * 同身份（登录 userId / 游客 guestId）再上线从原地复活；登录玩家位置落库，重启后也能原地复活。
+ * 在房间内则先请出房间（恢复户外位置驻留，房间列表/编排器自然解除引用）。
+ */
+function dwellOffline(p: Player, silent = false) {
+  releasePossessionOnExit(p.id);
+  const wasInRoom = !!p.roomId;
+  presence.markOffline(p.id);
+  if (wasInRoom) emitToRoom("playerLeave", { id: p.id }); // 房内其他人删掉该 remote（房内是局部坐标）
+  if (p.userId) db.savePlayerPos(p.userId, p.x, p.y, p.z, p.rotY);
+  if (!silent) {
+    const leaveText = `💤 ${p.name} 下线了，小人留在原地`;
+    io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
+    db.insertChatLog("system", "系统", p.userId ?? p.id, leaveText);
+    audit.event("leave", p.name, p.userId ?? p.id, `${p.name} 下线（小人原地驻留）`);
+  }
+}
+
 // ---------- REST ----------
 app.get("/api/state", (_req, res) => {
   res.json({
@@ -353,22 +372,15 @@ app.delete("/api/admin/object/:id", (req: AuthedRequest, res) => {
 // ---------- Socket ----------
 io.on("connection", (socket: Socket) => {
   let playerId: string | null = null;
+  let lastPosSave = 0;
 
-  socket.on("join", ({ name, token }: { name: string; token?: string }, ack?: (h: HelloPayload) => void) => {
-    // 幂等：同一连接重复 join（切账号 / 账号→游客）先清掉旧身份，
-    // 否则旧 player 残留在 presence 里 → 自己的旧化身原地不动还显示在线
+  socket.on("join", ({ name, token, guestId }: { name: string; token?: string; guestId?: string }, ack?: (h: HelloPayload) => void) => {
+    // 幂等：同一连接重复 join（切账号 / 账号→游客）把旧身份转为离线驻留（小人留原地），
+    // 不再广播 player:leave —— 旧化身原地变灰，别人看到的是「下线驻留」
     if (playerId) {
-      const old = presence.leave(playerId);
+      const old = presence.get(playerId);
       playerId = null;
-      if (old) {
-        releasePossessionOnExit(old.id);
-        if (old.roomId) emitToRoom("playerLeave", { id: old.id });
-        emitSameSpace(old, "player:leave", { id: old.id, name: old.name });
-        const leaveText = `🚪 ${old.name} 离开了世界`;
-        io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
-        db.insertChatLog("system", "系统", old.userId ?? old.id, leaveText);
-        audit.event("leave", old.name, old.userId ?? old.id, `${old.name} 离开了世界`);
-      }
+      if (old) dwellOffline(old);
     }
     // 账号玩家：token 验证 → 昵称取账号名，造物归属跨会话稳定
     let userId: string | null = null;
@@ -381,15 +393,20 @@ io.on("connection", (socket: Socket) => {
         displayName = user.name.slice(0, 12);
       }
     }
-    const spawn = world.findSpawn();
-    const player = presence.join(displayName, socket.id, spawn, userId);
+    // 登录玩家：服务重启后内存条目丢失 → 用落库的最后位置复活（重启前的原地）
+    let spawn = world.findSpawn();
+    if (userId) {
+      const last = db.getPlayerPos(userId);
+      if (last) spawn = { x: last.x, y: last.y, z: last.z };
+    }
+    const { player, resumed } = presence.join(displayName, socket.id, spawn, userId, guestId ? String(guestId).slice(0, 40) : null);
     playerId = player.id;
 
     const hello: HelloPayload = {
       meta: world.publicMeta(),
       selfId: player.id,
       self: presence.publicInfo(player),
-      // 只发同空间（户外）的玩家，房间内玩家的坐标是房间局部坐标，跨空间会出鬼影
+      // 只发同空间（户外）的玩家（含离线驻留的，带 online:false），房间内玩家的坐标是房间局部坐标，跨空间会出鬼影
       players: [...presence.players.values()]
         .filter((p) => p.id !== player.id && p.roomId === player.roomId)
         .map((p) => presence.publicInfo(p)),
@@ -398,32 +415,32 @@ io.on("connection", (socket: Socket) => {
     };
     ack?.(hello);
 
-    const joinText = `👋 ${displayName} 进入了世界`;
+    const joinText = resumed ? `👋 ${displayName} 回来了（小人原地复活）` : `👋 ${displayName} 进入了世界`;
     io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: joinText, ts: Date.now() });
     db.insertChatLog("system", "系统", userId ?? player.id, joinText);
-    audit.event("join", displayName, userId ?? player.id, `${displayName} 进入了世界`, { guest: !userId });
+    audit.event("join", displayName, userId ?? player.id, `${displayName} ${resumed ? "复活（原地）" : "进入了世界"}`, { guest: !userId });
     emitSameSpace(player, "player:join", presence.publicInfo(player));
   });
 
-  /** 主动离开世界（切换账号 / 换游客时客户端调用）：立刻清理化身，不等 socket 断开 */
+  /** 主动离开世界（切换账号 / 换游客时客户端调用）：小人转为离线驻留（原地留灰影），不等 socket 断开 */
   socket.on("leave", () => {
     if (!playerId) return;
-    const p = presence.leave(playerId);
+    const p = presence.get(playerId);
     playerId = null;
     if (!p) return;
-    releasePossessionOnExit(p.id);
-    if (p.roomId) emitToRoom("playerLeave", { id: p.id });
-    emitSameSpace(p, "player:leave", { id: p.id, name: p.name });
-    const leaveText = `🚪 ${p.name} 离开了世界`;
-    io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
-    db.insertChatLog("system", "系统", p.userId ?? p.id, leaveText);
-    audit.event("leave", p.name, p.userId ?? p.id, `${p.name} 离开了世界`);
+    dwellOffline(p);
   });
 
   socket.on("move", (mv: MoveInput) => {
     if (!playerId) return;
     if (typeof mv?.x !== "number" || typeof mv?.z !== "number") return;
     presence.updateMove(playerId, mv);
+    // 登录玩家位置节流落库（30s），服务重启后上线仍从原地复活
+    const p = presence.get(playerId);
+    if (p?.userId && Date.now() - lastPosSave > 30_000) {
+      lastPosSave = Date.now();
+      db.savePlayerPos(p.userId, p.x, p.y, p.z, p.rotY);
+    }
   });
 
   /** 手搓放置道具 */
@@ -510,16 +527,10 @@ io.on("connection", (socket: Socket) => {
 
   socket.on("disconnect", () => {
     if (!playerId) return;
-    const p = presence.leave(playerId);
-    if (p) {
-      releasePossessionOnExit(p.id);
-      if (p.roomId) emitToRoom("playerLeave", { id: p.id });
-      emitSameSpace(p, "player:leave", { id: p.id, name: p.name });
-      const leaveText = `🚪 ${p.name} 离开了世界`;
-      io.emit("chat", { id: randomUUID(), kind: "system", from: "系统", text: leaveText, ts: Date.now() });
-      db.insertChatLog("system", "系统", p.userId ?? p.id, leaveText);
-      audit.event("leave", p.name, p.userId ?? p.id, `${p.name} 离开了世界`);
-    }
+    const p = presence.get(playerId);
+    playerId = null;
+    if (!p) return;
+    dwellOffline(p); // 小人原地驻留为离线状态，同身份再上线原地复活
   });
 
   // ---------- 房间（office） ----------

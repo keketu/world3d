@@ -963,6 +963,14 @@ input:focus-visible {
   color: #fff;
 }
 
+/* 离线驻留的小人名牌：灰调（身体本体由 setAvatarOffline 半透明） */
+.nameTag.offline {
+  background: rgba(233, 228, 219, 0.82);
+  color: rgba(74, 63, 57, 0.55);
+  border-color: rgba(180, 170, 158, 0.6);
+  cursor: default;
+}
+
 .objTag .objLabel {
   display: inline-block;
   position: relative;

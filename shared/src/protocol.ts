@@ -15,6 +15,8 @@ export interface PlayerInfo {
   z: number;
   rotY: number;
   anim: "idle" | "walk";
+  /** false = 玩家已断线，小人留在原地驻留（半透明💤）；缺省/true = 在线 */
+  online?: boolean;
 }
 
 /** 一件造物（道具）：世界里可放置的「物」，天然带创建者 */

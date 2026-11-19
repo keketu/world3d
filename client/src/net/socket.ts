@@ -20,6 +20,17 @@ import { roomHost } from "../engine/roomHost";
 
 let socket: Socket | null = null;
 
+/** 游客持久身份：断线后凭它原地复活小人（登录用户走 userId，互不影响） */
+const GUEST_KEY = "w3d_guest_id";
+function guestId(): string {
+  let id = localStorage.getItem(GUEST_KEY);
+  if (!id) {
+    id = crypto.randomUUID().slice(0, 16);
+    localStorage.setItem(GUEST_KEY, id);
+  }
+  return id;
+}
+
 function handleHello(h: HelloPayload) {
   const s = useWorld.getState();
   s.setMeta(h.meta);
@@ -221,7 +232,7 @@ export function sendAgentMove(agentId: string, x: number, z: number, rotY: numbe
 export function join(name: string, onHello: (h: HelloPayload) => void) {
   if (!socket) connect();
   const token = useWorld.getState().auth.token;
-  socket!.emit("join", { name, token: token ?? undefined }, (h: HelloPayload) => {
+  socket!.emit("join", { name, token: token ?? undefined, guestId: guestId() }, (h: HelloPayload) => {
     handleHello(h); // ack 与事件两条路径统一处理
     useWorld.getState().setJoined(h.self.name || name);
     onHello(h);
