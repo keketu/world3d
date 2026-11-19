@@ -246,7 +246,7 @@ export function registerMeApi(app: Express, deps: MeDeps) {
         ok: false,
         latencyMs: Date.now() - started,
         model,
-        reason: `调用失败（${err.status ? `HTTP ${err.status}` : "网络"}）：${(err.message ?? "").slice(0, 180)}`,
+        reason: `调用失败${err.status ? `（HTTP ${err.status}）` : ""}：${(err.message ?? "").slice(0, 180)}`,
       });
     }
   });

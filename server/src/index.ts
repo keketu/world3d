@@ -166,10 +166,13 @@ officeRoom.orch.brainForUser = (userId) => {
 function llmHookForUser(userId: string, playerName: string) {
   const cfg = db.getLlmConfig(userId);
   if (!cfg || !cfg.enabled) return null;
+  const def = providerById(cfg.provider);
+  // 固定厂商基址/路径实时取注册表（厂商迁域名时老配置自动跟上，无需重保存）；custom 用用户落库的基址
+  const baseUrl = cfg.provider === "custom" ? cfg.baseUrl : def?.baseUrl ?? cfg.baseUrl;
   return {
     brain: new LlmBrain({
-      baseUrl: cfg.baseUrl,
-      chatPath: providerById(cfg.provider)?.chatPath ?? "/chat/completions",
+      baseUrl,
+      chatPath: def?.chatPath ?? "/chat/completions",
       apiKey: cfg.apiKey,
       model: cfg.model,
       temperature: cfg.temperature,

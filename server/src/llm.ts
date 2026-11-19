@@ -41,11 +41,12 @@ export const LLM_PROVIDERS: LlmProviderDef[] = [
   {
     id: "minimax",
     label: "MiniMax",
-    baseUrl: "https://api.minimaxi.com/v1",
-    chatPath: "/text/chatcompletion_v2",
-    models: ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2", "MiniMax-Text-01"],
-    keyHint: "MiniMax 开放平台 API Key",
-    note: "Agent 推理与长文本能力强",
+    // 2026-11：平台迁到 api.minimax.cn，新推标准 OpenAI 兼容 /chat/completions（旧 minimaxi.com/text/chatcompletion_v2 已废弃）
+    baseUrl: "https://api.minimax.cn/v1",
+    chatPath: "/chat/completions",
+    models: ["MiniMax-M3.1-Flash", "MiniMax-M3"],
+    keyHint: "MiniMax 开放平台（platform.minimax.cn）API Key",
+    note: "Agent 推理能力强，模型列表以拉取为准",
   },
   {
     id: "openai",
@@ -245,7 +246,12 @@ export async function chatComplete(
     const j = JSON.parse(bodyText) as {
       choices?: Array<{ message?: { content?: string } }>;
       output?: { choices?: Array<{ message?: { content?: string } }> }; // minimax 老格式兜底
+      base_resp?: { status_code?: number; status_msg?: string }; // minimax 老风格：HTTP 200 + 业务错误码藏在 body
     };
+    // 老式厂商（MiniMax 旧接口等）HTTP 200 也可能报错：业务码非 0 = 失败，把真实原因抛出来
+    if (j.base_resp && (j.base_resp.status_code ?? 0) !== 0) {
+      throw new LlmError(0, sanitize(`${j.base_resp.status_msg ?? "厂商返回业务错误"}（code ${j.base_resp.status_code}）`));
+    }
     const content = j.choices?.[0]?.message?.content ?? j.output?.choices?.[0]?.message?.content ?? "";
     if (!content) throw new LlmError(0, "模型返回了空内容");
     return content.trim();

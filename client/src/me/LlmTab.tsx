@@ -385,7 +385,7 @@ export default function LlmTab({ token }: { token: string }) {
         <div className="llmLinks">
           <span>DeepSeek → platform.deepseek.com</span>
           <span>智谱 GLM → open.bigmodel.cn（有免费额度的模型以官网为准）</span>
-          <span>MiniMax → platform.minimaxi.com</span>
+          <span>MiniMax → platform.minimax.cn</span>
           <span>OpenAI → platform.openai.com</span>
           <span>通义千问 → bailian.console.aliyun.com（新用户有免费额度）</span>
           <span>其他模型 → 选「自定义」，填任意 OpenAI 兼容接口基址</span>
