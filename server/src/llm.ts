@@ -55,7 +55,7 @@ export const LLM_PROVIDERS: LlmProviderDef[] = [
     chatPath: "/chat/completions",
     models: ["gpt-5.2", "gpt-5.1", "gpt-5-mini", "gpt-5-nano"],
     keyHint: "sk- 开头，OpenAI 平台申请",
-    note: "需要能访问 OpenAI 的网络",
+    note: "国内服务器直连 api.openai.com 不通——需用『自定义』填 OpenAI 中转基址，或选国内厂商",
   },
   {
     id: "qwen",
@@ -261,16 +261,19 @@ export async function chatComplete(
   }
 }
 
+/** 模型列表拉取结果：成功给列表，失败给真实原因（调用方回落兜底列表时展示给用户） */
+export type LlmModelsResult = { ok: true; models: string[] } | { ok: false; reason: string };
+
 /**
  * 拉取厂商真实模型列表：GET {baseUrl}/models（OpenAI 兼容接口，填好 Key 才能调）。
- * 任何失败返回 null，调用方回落静态兜底列表 —— 永不抛错，选模型不被阻塞。
+ * 参数不合法返回 null；请求发出后成功/失败都带结果（失败含真实原因，永不抛错）。
  */
 export async function listProviderModels(
   providerId: string,
   apiKey: string,
   customBaseUrl?: string,
   timeoutMs = 8_000
-): Promise<string[] | null> {
+): Promise<LlmModelsResult | null> {
   const def = providerById(providerId);
   if (!def || !apiKey) return null;
   const baseUrl = (providerId === "custom" ? (customBaseUrl ?? "") : def.baseUrl).replace(/\/+$/, "");
@@ -292,21 +295,22 @@ export async function listProviderModels(
   let res: Response;
   try {
     res = await doFetch();
-  } catch {
+  } catch (first) {
     try {
       res = await doFetch();
-    } catch {
-      return null;
+    } catch (e) {
+      return { ok: false, reason: controller_aborted(e) ? "请求超时" : `网络错误：${sanitize(String((e as Error).message ?? e))}` };
     }
   }
-  if (!res.ok) return null;
+  if (!res.ok) return { ok: false, reason: `厂商返回 HTTP ${res.status}${res.status === 401 ? "（Key 无效或过期）" : ""}` };
   try {
     const j = JSON.parse(await res.text()) as { data?: Array<{ id?: string }>; models?: Array<{ id?: string }> };
     const ids = (j.data ?? j.models ?? [])
       .map((m) => String(m.id ?? "").trim())
       .filter((s) => /^[A-Za-z0-9][A-Za-z0-9._\-:/]{0,80}$/.test(s));
-    return ids.length ? [...new Set(ids)].sort() : null;
+    if (!ids.length) return { ok: false, reason: "厂商返回了空模型列表" };
+    return { ok: true, models: [...new Set(ids)].sort() };
   } catch {
-    return null;
+    return { ok: false, reason: "响应解析失败（接口不兼容？）" };
   }
 }

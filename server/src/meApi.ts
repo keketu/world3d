@@ -242,11 +242,15 @@ export function registerMeApi(app: Express, deps: MeDeps) {
       res.json({ ok: true, latencyMs: Date.now() - started, model, reply: reply.slice(0, 60) });
     } catch (e) {
       const err = e as { status?: number; message?: string };
+      let reason = `调用失败${err.status ? `（HTTP ${err.status}）` : ""}：${(err.message ?? "").slice(0, 180)}`;
+      // 网络层失败（status=0，多为超时/连不上）对 OpenAI 给出针对性的出路提示
+      if (!err.status && provider === "openai")
+        reason += "。提示：国内服务器可能无法直连 api.openai.com，可改用『自定义』填 OpenAI 中转基址，或选国内厂商（DeepSeek/GLM/Qwen/MiniMax）";
       res.json({
         ok: false,
         latencyMs: Date.now() - started,
         model,
-        reason: `调用失败${err.status ? `（HTTP ${err.status}）` : ""}：${(err.message ?? "").slice(0, 180)}`,
+        reason,
       });
     }
   });
@@ -271,13 +275,15 @@ export function registerMeApi(app: Express, deps: MeDeps) {
       const baseUrl = String(b.baseUrl ?? "").trim().replace(/\/+$/, "");
       if (!isAllowedBaseUrl(baseUrl)) return res.status(400).json({ ok: false, reason: "接口地址不合法" });
     }
-    const live = await listProviderModels(provider, apiKey, String(b.baseUrl ?? "").trim());
-    if (live) return res.json({ ok: true, models: live, live: true });
+    const pulled = await listProviderModels(provider, apiKey, String(b.baseUrl ?? "").trim());
+    if (pulled?.ok) return res.json({ ok: true, models: pulled.models, live: true });
+    let reason = pulled?.reason ?? "厂商未提供列表接口或本次拉取失败";
+    if (provider === "openai") reason += "。提示：国内服务器可能无法直连 api.openai.com，可改用『自定义』填 OpenAI 中转基址，或选国内厂商（DeepSeek/GLM/Qwen/MiniMax）";
     return res.json({
       ok: true,
       models: def.models,
       live: false,
-      reason: "厂商未提供列表接口或本次拉取失败，先给出常见模型（也可手动输入任意模型名）",
+      reason: `${reason}——先给出常见模型（也可手动输入任意模型名）`,
     });
   });
 
