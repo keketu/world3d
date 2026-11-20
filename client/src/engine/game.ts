@@ -840,6 +840,11 @@ export function startGame(container: HTMLElement): GameHandle {
           }
         }
       }
+      // 贴地自愈：无论是否在移动，y 都向地表收敛——旧存档悬空、异常高度站着不动也能落回地面
+      if (!roomHost.active) {
+        const groundY = clientWorld.surfaceY(self.x, self.z);
+        self.y += (groundY - self.y) * Math.min(1, dt * 8);
+      }
       self.anim = moving ? "walk" : "idle";
 
       moveTimer += dt;

@@ -538,7 +538,11 @@ io.on("connection", (socket: Socket) => {
     let spawn = SPAWN;
     if (userId) {
       const last = db.getPlayerPos(userId);
-      if (last) spawn = { x: last.x, y: last.y, z: last.z };
+      if (last) {
+        // 断线驻留恢复：x/z 用存档，y 按当前地表重算——旧存档的 y 可能是
+        // 海岛时代的高度（平原化后已不存在），原样恢复会把人悬在半空
+        spawn = { x: last.x, y: world.heightAt(Math.floor(last.x), Math.floor(last.z)), z: last.z };
+      }
     }
     const { player, resumed } = presence.join(displayName, socket.id, spawn, userId, guestId ? String(guestId).slice(0, 40) : null);
     playerId = player.id;
