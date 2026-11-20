@@ -122,6 +122,12 @@ export function startGame(container: HTMLElement): GameHandle {
     propMeshes.set(o.id, { mesh, labelY, seatY: y, creator: o.creatorName, variant: o.variant, kind: o.kind });
     if (animate) popAnims.set(o.id, 0);
     if (isBuildingKind(o.kind) && !animate) rebuildCamBox(o.id, mesh);
+    // 系统建筑常显地名牌（像小镇地图上每栋房子都有名字）
+    if (isBuildingKind(o.kind) && (o.creatorId === "system-city" || o.creatorId === "system")) {
+      const size = buildingSize(o.kind, o.params);
+      const topY = o.kind === "tower" ? 2.8 + Number(o.params?.f ?? 6) * 3 + 1.2 : o.kind === "office" ? 6.5 : 7.2;
+      setLabel(`bld-${o.id}`, String(o.params?.name ?? propLabel(o.kind, o.variant)), o.x, y + topY, o.z, "objTag", 110);
+    }
     // 可进入建筑：登记门口世界坐标与目标房间（进门触发点）
     if (isBuildingKind(o.kind)) {
       const size = buildingSize(o.kind, o.params);
@@ -150,6 +156,7 @@ export function startGame(container: HTMLElement): GameHandle {
       propMeshes.delete(id);
     }
     camBoxes.delete(id);
+    removeLabel(`bld-${id}`);
     roomHost.removeDoor(id);
     if (wasBuilding) rebuildTerrain();
   };
@@ -165,7 +172,7 @@ export function startGame(container: HTMLElement): GameHandle {
   // 默认背对岛心朝外看：出生画面是开阔平原 + 身后樱花，办公楼在身后不抢镜
   let camYaw = Math.PI;
   // 默认低俯角（~24°）：能看见天空/海/远景和角色半侧脸，画面有纵深氛围；用户滚轮/双指可自由调
-  let camPitch = 0.42;
+  let camPitch = 0.62;
   let camDist = 13;
   let viewMode: "third" | "first" = "third";
 
@@ -574,16 +581,16 @@ export function startGame(container: HTMLElement): GameHandle {
 
   // ---------- 目的地标记：固定在目标点的脉冲圈 + 脚前指向行进方向的箭头 ----------
   const destRing = new THREE.Mesh(
-    new THREE.RingGeometry(0.9, 1.15, 36),
-    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.55, 0.72, 36),
+    new THREE.MeshBasicMaterial({ color: 0xf2c14e, transparent: true, opacity: 0.65, side: THREE.DoubleSide })
   );
   destRing.rotation.x = -Math.PI / 2;
   destRing.visible = false;
   scene.add(destRing);
   const destArrow = new THREE.Group();
   const destArrowCone = new THREE.Mesh(
-    new THREE.ConeGeometry(0.5, 1.3, 3),
-    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.85 })
+    new THREE.ConeGeometry(0.22, 0.6, 3),
+    new THREE.MeshBasicMaterial({ color: 0xf2c14e, transparent: true, opacity: 0.6 })
   );
   destArrowCone.rotation.x = Math.PI / 2; // 锥体平躺，尖端指向局部 +z
   destArrow.add(destArrowCone);
@@ -908,14 +915,14 @@ export function startGame(container: HTMLElement): GameHandle {
       destArrow.visible = !!dest;
       if (dest) {
         const indoor = roomHost.active;
-        destRing.position.set(dest.x, indoor ? 0.07 : clientWorld.surfaceY(dest.x, dest.z) + 0.12, dest.z);
-        destRing.scale.setScalar(1 + Math.sin(time * 5) * 0.06);
+        destRing.position.set(dest.x, indoor ? 0.06 : clientWorld.surfaceY(dest.x, dest.z) + 0.1, dest.z);
+        destRing.scale.setScalar(1 + Math.sin(time * 5) * 0.03);
         const dx = dest.x - self.x;
         const dz = dest.z - self.z;
         const dist = Math.hypot(dx, dz);
         if (dist > 0.6) {
           destArrow.visible = true;
-          destArrow.position.set(self.x + (dx / dist) * 1.1, indoor ? 0.3 : self.y + 0.35, self.z + (dz / dist) * 1.1);
+          destArrow.position.set(self.x + (dx / dist) * 0.9, indoor ? 0.18 : self.y + 0.22, self.z + (dz / dist) * 0.9);
           destArrow.rotation.y = Math.atan2(dx, dz);
         }
       }

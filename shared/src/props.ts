@@ -129,6 +129,13 @@ export function buildingSize(kind: string, params?: Record<string, unknown>): { 
   return { w: cl(params?.w, t.w), d: cl(params?.d, t.d), f: cl(params?.f, t.f) };
 }
 
+/** 建筑的旋转矩形碰撞半尺寸（hw=半宽 hd=半深，已含 scale）——比圆形近似更贴墙防穿模 */
+export function buildingRect(kind: string, params?: Record<string, unknown>, scale = 1): { hw: number; hd: number } | null {
+  if (!BUILDING_KINDS.has(kind)) return null;
+  const s = buildingSize(kind, params);
+  return { hw: (s.w / 2) * scale, hd: (s.d / 2) * scale };
+}
+
 /** 手搓 hotbar：首位「空手」= 点击行走模式，其后为可放道具 */
 export const HOTBAR_PROPS: Array<{ kind: string; variant: string; label: string; icon: string }> = [
   { kind: "hand", variant: "", label: "空手行走", icon: "✋" },

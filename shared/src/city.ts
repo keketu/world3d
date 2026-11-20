@@ -93,6 +93,8 @@ export interface CityLot {
   /** 建议 variant（确定性随机）与层数 */
   variant: string;
   floors: number;
+  /** 地名牌（如「北街西座写字楼」） */
+  name: string;
 }
 
 const TOWER_VARIANTS = ["蓝玻璃", "暖白", "陶土红"];
@@ -179,6 +181,8 @@ export function cityLots(): CityLot[] {
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   const lots: CityLot[] = [];
+  const colName = (b: number) => ["", "西", "中", "东", ""][b];
+  const rowName = (b: number) => ["", "北", "中", "南", ""][b];
   const emit = (block: string, kind: "tower" | "shop", slots: Array<{ x: number; z: number }>) => {
     const [cs, rs] = block.split("-");
     const cx = blockCenter(Number(cs));
@@ -194,6 +198,7 @@ export function cityLots(): CityLot[] {
         rotY: faceRoad(x, z),
         variant: kind === "tower" ? TOWER_VARIANTS[Math.floor(rng() * TOWER_VARIANTS.length)] : SHOP_VARIANTS[Math.floor(rng() * SHOP_VARIANTS.length)],
         floors: 4 + Math.floor(rng() * 7), // 4..12 层
+        name: `${rowName(Number(rs))}街${colName(Number(cs))}座${kind === "tower" ? "写字楼" : "商铺"}`,
       });
     }
   };

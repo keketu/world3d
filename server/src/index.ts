@@ -222,14 +222,20 @@ builder.attach(io);
     }
   }
 
-  // 补种缺失的建筑（放置前校验：用户造物占位的 lot 自动跳过）
+  // 补种缺失的建筑（放置前校验：用户造物占位的 lot 自动跳过）；存量建筑补地名
   for (const lot of lots) {
-    const exists = [...world.objects.values()].some(
+    const exists = [...world.objects.values()].find(
       (o) => o.creatorId === SYS_CITY && Math.hypot(o.x - lot.x, o.z - lot.z) < 1.5
     );
-    if (exists) continue;
+    if (exists) {
+      if (!exists.params?.name) {
+        exists.params = { ...(exists.params ?? {}), name: lot.name };
+        db.updateObjectParams(exists.id, exists.params);
+      }
+      continue;
+    }
     if (!world.validatePlacement(lot.kind, lot.x, lot.z).ok) continue;
-    const params = lot.kind === "tower" ? { w: 8, d: 8, f: lot.floors } : { w: 6, d: 6 };
+    const params = lot.kind === "tower" ? { w: 8, d: 8, f: lot.floors, name: lot.name } : { w: 6, d: 6, name: lot.name };
     const row = world.addObject(
       { kind: lot.kind, variant: lot.variant, x: lot.x, z: lot.z, rotY: lot.rotY, scale: 1, creatorId: SYS_CITY, creatorName: "小世界城建", createdAt: Date.now(), params },
       params

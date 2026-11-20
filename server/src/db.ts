@@ -188,6 +188,10 @@ export class Db {
   }
 
   /** 搬移造物（出生区迁移时办公楼跟过来） */
+  updateObjectParams(id: string, params: Record<string, unknown>) {
+    this.db.prepare(`UPDATE objects SET params = ? WHERE id = ?`).run(JSON.stringify(params), id);
+  }
+
   updateObjectPos(id: string, x: number, z: number, rotY: number) {
     this.db.prepare(`UPDATE objects SET x=?, z=?, rotY=? WHERE id=?`).run(x, z, rotY, id);
   }

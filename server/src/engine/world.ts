@@ -9,6 +9,7 @@ import {
   TerrainMod,
   PROP_KINDS,
   isBuildingKind,
+  buildingSize,
 } from "@world3d/shared";
 
 export interface TerrainModRow extends TerrainMod {
@@ -82,8 +83,23 @@ export class World {
   blockedAt(x: number, z: number, selfY: number): boolean {
     if (!this.inBounds(x, z)) return true;
     if (!this.isLand(x, z)) return true; // 不走进水里
-    for (const c of this.collidersNear(x, z, 0.35)) {
-      if (Math.hypot(c.x - x, c.z - z) < c.r + 0.3) return true;
+    // 建筑：旋转矩形贴合墙体（防切角穿模）；小件：圆形
+    for (const o of this.objects.values()) {
+      if (isBuildingKind(o.kind)) {
+        const size = buildingSize(o.kind, o.params);
+        const sc = o.scale ?? 1;
+        const c = Math.cos(o.rotY);
+        const sn = Math.sin(o.rotY);
+        const dx = o.x - x;
+        const dz = o.z - z;
+        const lx = dx * c - dz * sn;
+        const lz = dx * sn + dz * c;
+        if (Math.abs(lx) < (size.w / 2) * sc + 0.3 && Math.abs(lz) < (size.d / 2) * sc + 0.3) return true;
+        continue;
+      }
+      const fr = FOOTPRINT[o.kind] ?? 1;
+      if (fr <= 0) continue;
+      if (Math.hypot(o.x - x, o.z - z) < fr + 0.3) return true;
     }
     return false;
   }

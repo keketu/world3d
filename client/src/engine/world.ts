@@ -1,5 +1,5 @@
 // 客户端世界状态：高度图（含 mods）+ 道具索引 + 碰撞
-import { heightAt as baseHeightAt, WORLD_SEED, WATER_LEVEL, WorldMeta, WorldObject, TerrainMod, PlayerInfo, isPropCollidable, isBuildingKind } from "@world3d/shared";
+import { heightAt as baseHeightAt, WORLD_SEED, WATER_LEVEL, WorldMeta, WorldObject, TerrainMod, PlayerInfo, isPropCollidable, isBuildingKind, buildingRect } from "@world3d/shared";
 import { requestPlace, requestRemove } from "../net/socket";
 
 interface RemoteAvatar {
@@ -129,8 +129,20 @@ class ClientWorld {
     const size = meta?.size ?? 256;
     if (x < 1.2 || z < 1.2 || x > size - 1.2 || z > size - 1.2) return true;
     if (!this.isLand(x, z)) return true;
-    // 道具碰撞（圆形近似）
+    // 道具碰撞：小件圆形近似，建筑用旋转矩形（贴合墙体，防切角穿模）
     for (const o of this.objects.values()) {
+      if (isBuildingKind(o.kind)) {
+        const rect = buildingRect(o.kind, o.params, o.scale || 1);
+        if (!rect) continue;
+        const c = Math.cos(o.rotY);
+        const s = Math.sin(o.rotY);
+        const dx = o.x - x;
+        const dz = o.z - z;
+        const lx = dx * c - dz * s;
+        const lz = dx * s + dz * c;
+        if (Math.abs(lx) < rect.hw + 0.34 && Math.abs(lz) < rect.hd + 0.34) return true;
+        continue;
+      }
       const cr = isPropCollidable(o.kind);
       if (cr <= 0) continue;
       const scale = o.scale || 1;
