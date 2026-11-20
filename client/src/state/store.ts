@@ -4,6 +4,9 @@ import { AgentInfo, AuthUser, ChatMessage, DialogueLine, PlayerInfo, ProjectInfo
 export type QualityTier = "low" | "mid" | "high";
 export type ViewMode = "third" | "first";
 
+/** 操作方式：键盘 WASD 移动 / 鼠标点击行走（二选一互斥） */
+export type ControlMode = "keyboard" | "mouse";
+
 /** 玩家设置（持久化到 localStorage） */
 export interface Settings {
   /** 鼠标转视角灵敏度（1 = 默认） */
@@ -12,9 +15,9 @@ export interface Settings {
   freeLook: boolean;
   /** 边缘锁定：鼠标滑到屏幕左右边缘时持续转向 */
   edgeLock: boolean;
-  /** 键盘 WASD 移动开关 */
-  keyboardMove: boolean;
-  /** 键盘移动速度倍率 */
+  /** 操作方式：WASD 移动 与 点击行走 互斥，只能选一种 */
+  controlMode: ControlMode;
+  /** 键盘移动速度倍率（仅键盘模式生效） */
   keyboardSpeed: number;
 }
 
@@ -22,7 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mouseSensitivity: 1,
   freeLook: true,
   edgeLock: true,
-  keyboardMove: true,
+  controlMode: "keyboard",
   keyboardSpeed: 1,
 };
 
@@ -30,7 +33,13 @@ export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem("w3d_settings");
     if (!raw) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
+    const parsed = JSON.parse(raw) as Partial<Settings> & { keyboardMove?: boolean };
+    // 旧版迁移：原来的 keyboardMove 开关映射为新的二选一 controlMode
+    if (parsed.controlMode !== "keyboard" && parsed.controlMode !== "mouse" && typeof parsed.keyboardMove === "boolean") {
+      parsed.controlMode = parsed.keyboardMove ? "keyboard" : "mouse";
+    }
+    delete parsed.keyboardMove;
+    return { ...DEFAULT_SETTINGS, ...parsed };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

@@ -42,8 +42,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // dev(tsx, src/) 与生产(dist/)都是 world3d 下两级 → ../../client/dist
 const clientDist = path.resolve(__dirname, "../../client/dist");
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
+  // index.html 禁强缓存：发版后浏览器必须拿到新的资源清单；带 hash 的 assets 长缓存
+  app.use(
+    express.static(clientDist, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-cache");
+        else if (/[/\\]assets[/\\]/.test(filePath)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      },
+    })
+  );
   app.get(/^\/(?!api|socket\.io).*/, (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
     res.sendFile(path.join(clientDist, "index.html"));
   });
   console.log(`[world3d] serving client from ${clientDist}`);

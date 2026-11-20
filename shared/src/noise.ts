@@ -37,23 +37,12 @@ function valueNoise(x: number, z: number, seed: number): number {
 
 export const WORLD_SEED = 20261118;
 
-/** 地表高度（不含水体）：中心草甸丘陵，r>90 向海缓降成岛，海边自然出现沙滩 */
+/** 地表高度（不含水体）：开阔平原，缓丘起伏很小，全域高于水位（无海岸） */
 export function heightAt(x: number, z: number, seed = WORLD_SEED): number {
-  const n1 = valueNoise(x / 46, z / 46, seed); // 大起伏
-  const n2 = valueNoise(x / 14, z / 14, seed ^ 0x9e37); // 细节
-  const n3 = valueNoise(x / 5, z / 5, seed ^ 0x51f2); // 微起伏
-  let h = 7 + n1 * 13 + n2 * 4.5 + n3 * 1.8;
-  const d = Math.hypot(x - 128, z - 128);
-  // 中心区域压平一点，方便新手盖楼
-  if (d < 36) {
-    const k = 1 - d / 36;
-    h = h * (1 - k * 0.6) + 12 * (k * 0.6);
-  }
-  // 岛屿化：r>90 向海缓降（海岸线约 r≈98-108 随噪声摆动），r≥118 沉入海底
-  if (d > 90) {
-    const s = Math.min(1, (d - 90) / 28);
-    h -= 24 * Math.pow(s, 1.55);
-  }
-  // 不取整：整数高度会在缓坡海岸形成 1m 台阶感
-  return Math.max(2, Math.min(30, h));
+  const n1 = valueNoise(x / 60, z / 60, seed); // 大尺度缓丘
+  const n2 = valueNoise(x / 22, z / 22, seed ^ 0x9e37); // 细节
+  const n3 = valueNoise(x / 8, z / 8, seed ^ 0x51f2); // 微起伏
+  const h = 12.6 + (n1 - 0.5) * 2.4 + (n2 - 0.5) * 1.2 + (n3 - 0.5) * 0.5;
+  // 钳制在 11.4 以上：水位 9、沙滩色阈值 11.2，全域保持草地平原
+  return Math.max(11.4, Math.min(15, h));
 }

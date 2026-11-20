@@ -1,4 +1,4 @@
-// 设置面板：鼠标灵敏度 / 键盘移动 / 速度 / 视角
+// 设置面板：操作方式（WASD / 鼠标点击 二选一）/ 鼠标灵敏度 / 速度 / 视角
 import { useState } from "react";
 import { useWorld } from "../state/store";
 
@@ -75,37 +75,52 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="setGroup">
-            <div className="setGroupTitle">键盘移动</div>
-            <label className="setSwitch">
-              <input
-                type="checkbox"
-                checked={settings.keyboardMove}
-                onChange={(e) => setSettings({ keyboardMove: e.target.checked })}
-              />
-              <span className="setSwitchBox" />
-              启用 WASD / 方向键移动
-            </label>
+            <div className="setGroupTitle">操作方式</div>
             <div className="setRow">
-              <label>移动速度</label>
-              <input
-                type="range"
-                min={0.5}
-                max={2.5}
-                step={0.05}
-                value={settings.keyboardSpeed}
-                onChange={(e) => setSettings({ keyboardSpeed: Number(e.target.value) })}
-                disabled={!settings.keyboardMove}
-              />
-              <b className="setVal">{settings.keyboardSpeed.toFixed(2)}×</b>
+              <label>移动控制</label>
+              <div className="setSeg">
+                <button
+                  className={`setSegBtn ${settings.controlMode === "keyboard" ? "on" : ""}`}
+                  onClick={() => setSettings({ controlMode: "keyboard" })}
+                >
+                  ⌨️ WASD
+                </button>
+                <button
+                  className={`setSegBtn ${settings.controlMode === "mouse" ? "on" : ""}`}
+                  onClick={() => setSettings({ controlMode: "mouse" })}
+                >
+                  🖱️ 点击
+                </button>
+              </div>
             </div>
-            <div className="setKeys">
-              <span><kbd>W</kbd> 前进</span>
-              <span><kbd>A</kbd> 左移</span>
-              <span><kbd>S</kbd> 后退</span>
-              <span><kbd>D</kbd> 右移</span>
-              <span><kbd>↑↓←→</kbd> 同上</span>
+            <div className="setHint">
+              {settings.controlMode === "keyboard"
+                ? "键盘模式：WASD / 方向键移动，点击地面不会移动（仍可点地放置道具、右键拆除）。"
+                : "鼠标模式：点击地面行走、点人物走近对话，键盘 WASD 不生效。"}
             </div>
-            <div className="setHint">点击地面行走依然可用；按住键盘键时会接管方向。</div>
+            {settings.controlMode === "keyboard" && (
+              <>
+                <div className="setRow">
+                  <label>移动速度</label>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={2.5}
+                    step={0.05}
+                    value={settings.keyboardSpeed}
+                    onChange={(e) => setSettings({ keyboardSpeed: Number(e.target.value) })}
+                  />
+                  <b className="setVal">{settings.keyboardSpeed.toFixed(2)}×</b>
+                </div>
+                <div className="setKeys">
+                  <span><kbd>W</kbd> 前进</span>
+                  <span><kbd>A</kbd> 左移</span>
+                  <span><kbd>S</kbd> 后退</span>
+                  <span><kbd>D</kbd> 右移</span>
+                  <span><kbd>↑↓←→</kbd> 同上</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="setGroup">

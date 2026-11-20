@@ -910,6 +910,7 @@ input:focus-visible {
   color: var(--ink-soft);
   cursor: pointer;
   font-family: inherit;
+  white-space: nowrap;
 }
 
 .setSegBtn.on {

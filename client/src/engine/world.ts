@@ -28,10 +28,11 @@ class ClientWorld {
     this.mods.clear();
     for (const o of objects) this.objects.set(o.id, o);
     for (const m of mods) this.mods.set(m.id, m);
+    this.siteCache.clear(); // 换世界：宅基地基座高度全部失效
   }
 
-  /** 最终地表高度：噪声基底 - 池塘凹陷 */
-  heightAt(x: number, z: number): number {
+  /** 原始地表高度：噪声基底 - 池塘凹陷（不含建筑宅基地整平） */
+  private heightRaw(x: number, z: number): number {
     let h = baseHeightAt(x, z, WORLD_SEED);
     for (const m of this.mods.values()) {
       if (m.type !== "pond") continue;
@@ -40,6 +41,69 @@ class ClientWorld {
         const k = d <= m.r ? 1 - (d / m.r) * 0.35 : Math.max(0, 1 - (d - m.r) / (m.r * 0.15)) * 0.65;
         h -= m.depth * k;
       }
+    }
+    return h;
+  }
+
+  /** 建筑宅基地整平过渡带宽度（脚印外的斜坡衔接距离） */
+  private static readonly SITE_MARGIN = 2.6;
+  /** 宅基地基座高度缓存（原始地形下的脚印最低点），mods 变化时清空 */
+  private siteCache = new Map<string, number>();
+
+  /** 建筑半脚印尺寸（house 用 params.w/d，office 固定 8×6） */
+  private siteHalf(o: WorldObject): { hx: number; hz: number } {
+    const s = o.scale || 1;
+    if (o.kind === "house") {
+      return {
+        hx: (Math.min(11, Math.max(3, Number(o.params?.w ?? 5))) / 2) * s,
+        hz: (Math.min(11, Math.max(3, Number(o.params?.d ?? 5))) / 2) * s,
+      };
+    }
+    return { hx: 4.1 * s, hz: 3.1 * s }; // 办公楼主体 8×6
+  }
+
+  /** 建筑基座高度：脚印范围内原始地形的最低采样点（略下沉保证与地面咬合） */
+  siteLevelOf(o: WorldObject): number {
+    const cached = this.siteCache.get(o.id);
+    if (cached !== undefined) return cached;
+    const { hx, hz } = this.siteHalf(o);
+    let min = Infinity;
+    const N = 6;
+    for (let i = 0; i <= N; i++) {
+      for (let j = 0; j <= N; j++) {
+        const x = o.x - hx + (2 * hx * i) / N;
+        const z = o.z - hz + (2 * hz * j) / N;
+        min = Math.min(min, this.heightRaw(x, z));
+      }
+    }
+    const level = min - 0.12;
+    this.siteCache.set(o.id, level);
+    return level;
+  }
+
+  /** 最终地表高度：原始地形 + 建筑宅基地整平（脚印内拉平到基座高度，四周平滑过渡） */
+  heightAt(x: number, z: number): number {
+    let h = this.heightRaw(x, z);
+    for (const o of this.objects.values()) {
+      if (o.kind !== "house" && o.kind !== "office") continue;
+      // 粗筛：离建筑中心太远的直接跳过（脚印+过渡带的最大外接半径）
+      const { hx, hz } = this.siteHalf(o);
+      const reach = Math.hypot(hx, hz) + 2.6;
+      const dx0 = x - o.x;
+      const dz0 = z - o.z;
+      if (dx0 * dx0 + dz0 * dz0 > reach * reach) continue;
+      // 旋转到建筑局部坐标系（世界 → 局部 = R(-rotY)）
+      const c = Math.cos(o.rotY);
+      const s = Math.sin(o.rotY);
+      const lx = dx0 * c - dz0 * s;
+      const lz = dx0 * s + dz0 * c;
+      const qx = Math.max(0, Math.abs(lx) - hx);
+      const qz = Math.max(0, Math.abs(lz) - hz);
+      const d = Math.hypot(qx, qz);
+      if (d >= 2.6) continue;
+      const t = 1 - d / 2.6;
+      const k = t * t * (3 - 2 * t); // smoothstep：边缘平滑过渡
+      h += (this.siteLevelOf(o) - h) * k;
     }
     return h;
   }
@@ -91,6 +155,7 @@ class ClientWorld {
 
   applySculpt(mod: TerrainMod) {
     this.mods.set(mod.id, mod);
+    this.siteCache.clear(); // 地形改造（挖池塘等）会改变原始高度，基座高度重新计算
     this.onModsChanged();
   }
 

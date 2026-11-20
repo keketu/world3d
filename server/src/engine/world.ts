@@ -130,7 +130,7 @@ export class World {
   }
 
   findSpawn(): { x: number; y: number; z: number } {
-    // 沿外环找「面向大海」的出生点：脚下是陆、向外射线 6~22m 基本是水 —— 出生即面朝海的明信片画面
+    // 平原世界（无海岸）：从中环带向外找开阔出生点 —— 脚下是陆、四周 6m 无大型建筑
     // 只看大型建筑（house/office）的占位，忽略树花等小件 —— 否则上一靴的迎宾树会把出生点越推越歪
     const c = this.size / 2;
     const OLX = -16;
@@ -142,19 +142,18 @@ export class World {
       }
       return false;
     };
-    for (let r = 96; r >= 58; r -= 3) {
+    for (let r = 58; r >= 24; r -= 3) {
       for (let a = 0; a < Math.PI * 2; a += Math.PI / 40) {
         const x = Math.floor(c + Math.cos(a) * r);
         const z = Math.floor(c + Math.sin(a) * r);
         if (!this.isLand(x, z)) continue;
         if (nearStructure(x + 0.5, z + 0.5)) continue;
-        // 与 index.ts 的 spawnLocal 同一坐标系：+lz 朝海，+lx 画面右
+        // 与 index.ts 的 spawnLocal 同一坐标系：+lz 朝外侧（远离岛心），+lx 画面右
         const at = (lx: number, lz: number) => ({
           ox: x + 0.5 + lx * Math.sin(a) + lz * Math.cos(a),
           oz: z + 0.5 - lx * Math.cos(a) + lz * Math.sin(a),
         });
-        // 办公楼落点只查陆地（楼会自己搬过来）；两侧/身后 6m/面前 2m 得是陆地且无建筑，
-        // 面前 5m 已是海：站在沙滩上，海水在脚前 2~5m
+        // 办公楼落位（楼会自己搬过来）与周边落脚点都要求是陆地且无建筑
         const officeSpot = at(OLX, OLZ);
         if (!this.isLand(Math.floor(officeSpot.ox), Math.floor(officeSpot.oz))) continue;
         const spots: Array<[number, number]> = [
@@ -163,8 +162,6 @@ export class World {
           [0, -6],
           [0, 2],
         ];
-        const wet = at(0, 5);
-        if (this.isLand(Math.floor(wet.ox), Math.floor(wet.oz))) continue;
         let ok = true;
         for (const [lx, lz] of spots) {
           const p = at(lx, lz);
@@ -178,11 +175,7 @@ export class World {
           }
         }
         if (!ok) continue;
-        let water = 0;
-        for (let d = 6; d <= 22; d += 4) {
-          if (!this.isLand(Math.floor(c + Math.cos(a) * (r + d)), Math.floor(c + Math.sin(a) * (r + d)))) water++;
-        }
-        if (water >= 4) return { x: x + 0.5, y: this.heightAt(x, z), z: z + 0.5 };
+        return { x: x + 0.5, y: this.heightAt(x, z), z: z + 0.5 };
       }
     }
     for (let r = 0; r < 40; r++) {

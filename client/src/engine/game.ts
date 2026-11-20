@@ -1,11 +1,11 @@
 // 游戏引擎：低模世界渲染循环、本地玩家、道具交互、标签系统、远端玩家
 import * as THREE from "three";
-import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, WATER_LEVEL } from "@world3d/shared";
+import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject } from "@world3d/shared";
 import { clientWorld } from "./world";
-import { buildTerrain, buildWater } from "./terrain";
+import { buildTerrain } from "./terrain";
 import { buildProp } from "./props";
 import { createAvatar, animateAvatar, setAvatarOffline, Avatar } from "../scene/avatar";
-import { useWorld } from "../state/store";
+import { useWorld, ControlMode } from "../state/store";
 import { qualityFor, applyQuality, detectTier } from "./quality";
 import { sendMove } from "../net/socket";
 import { roomHost } from "./roomHost";
@@ -78,9 +78,16 @@ export function startGame(container: HTMLElement): GameHandle {
     const size = clientWorld.meta?.size ?? 256;
     terrainMesh = buildTerrain(size);
     scene.add(terrainMesh);
-    if (!waterMesh) {
-      waterMesh = buildWater(size, WATER_LEVEL);
-      scene.add(waterMesh);
+    // 平原世界：全域陆地，不再渲染海平面（pond 池塘有独立水盘道具）
+    // 地形（含宅基地整平）变化后：建筑重新落座 + 相机避让盒刷新
+    for (const [id, pm] of propMeshes) {
+      if (pm.kind !== "house" && pm.kind !== "office") continue;
+      const o = clientWorld.objects.get(id);
+      if (!o) continue;
+      const y = clientWorld.siteLevelOf(o);
+      pm.seatY = y;
+      pm.mesh.position.y = y;
+      rebuildCamBox(id, pm.mesh);
     }
   }
   clientWorld.onModsChanged = rebuildTerrain;
@@ -91,7 +98,7 @@ export function startGame(container: HTMLElement): GameHandle {
   };
 
   // ---------- 道具管理 ----------
-  const propMeshes = new Map<string, { mesh: THREE.Object3D; labelY: number; creator: string; variant: string; kind: string }>();
+  const propMeshes = new Map<string, { mesh: THREE.Object3D; labelY: number; seatY: number; creator: string; variant: string; kind: string }>();
   const popAnims = new Map<string, number>();
   const propGroup = new THREE.Group();
   scene.add(propGroup);
@@ -105,13 +112,14 @@ export function startGame(container: HTMLElement): GameHandle {
 
   function spawnProp(o: WorldObject, animate: boolean) {
     const { mesh, labelY } = buildProp(o);
-    const y = clientWorld.heightAt(o.x, o.z);
+    // 建筑：坐在宅基地基座高度（脚印内地形会被整平到同一高度）；其余道具贴中心点地面
+    const y = o.kind === "house" || o.kind === "office" ? clientWorld.siteLevelOf(o) : clientWorld.heightAt(o.x, o.z);
     mesh.position.set(o.x, y, o.z);
     mesh.rotation.y = o.rotY;
     mesh.scale.setScalar(animate ? 0.01 : o.scale || 1);
     propGroup.add(mesh);
     mesh.userData.objectId = o.id; // 射线命中道具后由此取 id（拆除/走近大建筑都靠它）
-    propMeshes.set(o.id, { mesh, labelY, creator: o.creatorName, variant: o.variant, kind: o.kind });
+    propMeshes.set(o.id, { mesh, labelY, seatY: y, creator: o.creatorName, variant: o.variant, kind: o.kind });
     if (animate) popAnims.set(o.id, 0);
     if ((o.kind === "house" || o.kind === "office") && !animate) rebuildCamBox(o.id, mesh);
     // 办公楼：计算门口世界坐标（进门触发点）
@@ -121,14 +129,20 @@ export function startGame(container: HTMLElement): GameHandle {
     }
   }
 
-  clientWorld.onObjectAdded = (o, animate) => spawnProp(o, animate);
+  clientWorld.onObjectAdded = (o, animate) => {
+    spawnProp(o, animate);
+    // 建筑（宅基地）增删会改变地表形状：重建地形网格使整平生效
+    if (o.kind === "house" || o.kind === "office") rebuildTerrain();
+  };
   clientWorld.onObjectRemoved = (id) => {
     const pm = propMeshes.get(id);
+    const wasBuilding = pm?.kind === "house" || pm?.kind === "office";
     if (pm) {
       propGroup.remove(pm.mesh);
       propMeshes.delete(id);
     }
     camBoxes.delete(id);
+    if (wasBuilding) rebuildTerrain();
   };
 
   // ---------- 本地玩家 ----------
@@ -139,7 +153,7 @@ export function startGame(container: HTMLElement): GameHandle {
   scene.add(selfAvatar.group);
 
   // ---------- 相机 ----------
-  // 默认面向南（海的方向，出生点在南岸）：明信片式开场 —— 海 + 天空 + 身后樱花
+  // 默认背对岛心朝外看：出生画面是开阔平原 + 身后樱花，办公楼在身后不抢镜
   let camYaw = Math.PI;
   // 默认低俯角（~24°）：能看见天空/海/远景和角色半侧脸，画面有纵深氛围；用户滚轮/双指可自由调
   let camPitch = 0.42;
@@ -376,18 +390,20 @@ export function startGame(container: HTMLElement): GameHandle {
       mouseNDC.x = (p.lx / container.clientWidth) * 2 - 1;
       mouseNDC.y = -(p.ly / container.clientHeight) * 2 + 1;
       hoverTarget = raycastWorld();
+      // 点击移动只在「鼠标点击」操作模式下生效；键盘模式下点击只做放置/拆除等建造交互
+      const mouseControl = useWorld.getState().settings.controlMode === "mouse";
       if (p.button === 2) removeAction();
       else if (hoverTarget?.person) {
         // 点到人物：走到 TA 面前对话（不再穿透跑到身后）
-        approachPerson(hoverTarget.person);
+        if (mouseControl) approachPerson(hoverTarget.person);
       } else if (roomHost.active) {
         // 房间内：点击 = 行走（A* 自动绕开桌椅）
-        if (hoverTarget) setPlayerPath(hoverTarget.point.x, hoverTarget.point.z);
+        if (mouseControl && hoverTarget) setPlayerPath(hoverTarget.point.x, hoverTarget.point.z);
       } else {
         const sel = HOTBAR_PROPS[useWorld.getState().hotbarIndex];
         if (sel && sel.kind === "hand") {
           // 空手：点击地面行走
-          if (hoverTarget) {
+          if (mouseControl && hoverTarget) {
             const o = hoverTarget.objectId ? clientWorld.objects.get(hoverTarget.objectId) : null;
             const R = o ? (PROP_KINDS[o.kind]?.collideR ?? 0) : 0;
             if (R >= 2) {
@@ -571,10 +587,12 @@ export function startGame(container: HTMLElement): GameHandle {
   }
 
   // 点名牌（agent / 其他玩家）= 走到 TA 面前：手机上名牌是天然的大号点击热区
+  // 仅「鼠标点击」操作模式生效；键盘模式下自己用 WASD 走过去
   labelLayer.addEventListener("pointerdown", (e) => {
     const el = (e.target as HTMLElement).closest(".nameTag") as HTMLElement | null;
     const lid = el?.dataset.labelId ?? "";
     if (!lid || lid === "tag-self") return;
+    if (useWorld.getState().settings.controlMode !== "mouse") return;
     if (lid.startsWith("agent-")) approachPerson({ id: lid.slice(6), kind: "agent" });
     else if (lid.startsWith("tag-")) approachPerson({ id: lid.slice(4), kind: "player" });
   });
@@ -666,6 +684,8 @@ export function startGame(container: HTMLElement): GameHandle {
   const clock = new THREE.Clock();
   let moveTimer = 0;
   let raf = 0;
+  /** 当前操作方式（切换时清掉残余的点击目标/路径，避免换模式后继续自动走） */
+  let lastControlMode: ControlMode | null = null;
   const camTarget = new THREE.Vector3(128.5, 14, 128.5);
   const camCur = new THREE.Vector3(140, 26, 142);
 
@@ -677,6 +697,13 @@ export function startGame(container: HTMLElement): GameHandle {
 
     // 1. 本地移动（点击行走：户外直线+滑动避障，房间 A* 路径）
     if (st.joined) {
+      // 操作方式切换：清掉残余的点击目标 / A* 路径 / 走向人物意图
+      if (st.settings.controlMode !== lastControlMode) {
+        lastControlMode = st.settings.controlMode;
+        moveTarget = null;
+        roomPath = null;
+        approach = null;
+      }
       let moving = false;
             const SPEED = 4.6;
       if (roomHost.active && roomPath) {
@@ -753,9 +780,8 @@ export function startGame(container: HTMLElement): GameHandle {
       }
 
       // ---------- 键盘移动（WASD / 方向键） ----------
-      // 优先级高于点击行走：按住键时接管方向，松键后停止
-      const st = useWorld.getState();
-      if (st.settings.keyboardMove && keysDown.size > 0) {
+      // 仅「键盘」操作模式生效；与点击行走互斥
+      if (st.settings.controlMode === "keyboard" && keysDown.size > 0) {
         // 输入方向（屏幕空间）：W=前 S=后 A=左 D=右
         let ix = 0;
         let iz = 0;
@@ -839,7 +865,7 @@ export function startGame(container: HTMLElement): GameHandle {
       } else {
         const s = 1 - Math.pow(1 - t, 3);
         pm.mesh.scale.setScalar(s);
-        pm.mesh.position.y = clientWorld.heightAt(pm.mesh.position.x, pm.mesh.position.z) + (1 - s) * 0.6;
+        pm.mesh.position.y = pm.seatY + (1 - s) * 0.6;
       }
     }
 
@@ -870,9 +896,6 @@ export function startGame(container: HTMLElement): GameHandle {
       animateAvatar(av, !off && (dist > 0.1 || r.info.anim === "walk") ? "walk" : "idle", time);
       setLabel(`tag-${r.info.id}`, off ? `💤 ${r.info.name}` : r.info.name, g.position.x, g.position.y + 1.72, g.position.z, off ? "nameTag offline" : "nameTag");
     }
-
-    // 5. 水面轻微波动
-    if (waterMesh) waterMesh.position.y = WATER_LEVEL + Math.sin(time * 1.4) * 0.06;
 
     // 6. 射线悬停 + 高亮环 + 溯源提示（房间内跳过：户外射线无意义）
     if (st.joined && !roomHost.active) {
@@ -1039,6 +1062,14 @@ export function startGame(container: HTMLElement): GameHandle {
       const r = raycastWorld();
       return r ? { person: r.person ?? null, obj: r.objectId ?? null, ground: r.ground, p: [Math.round(r.point.x * 10) / 10, Math.round(r.point.z * 10) / 10] } : null;
     },
+    /** 世界坐标 (x,z) 处地形网格的真实渲染高度（射线垂直下探），诊断悬空用 */
+    groundYAt: (x: number, z: number) => {
+      if (!terrainMesh) return null;
+      raycaster.set(new THREE.Vector3(x, 200, z), new THREE.Vector3(0, -1, 0));
+      raycaster.far = 300;
+      const hits = raycaster.intersectObject(terrainMesh, false);
+      return hits.length ? hits[0].point.y : null;
+    },
     teleport: (x: number, z: number, y?: number) => {
       self.x = x;
       self.z = z;
@@ -1072,7 +1103,7 @@ export function startGame(container: HTMLElement): GameHandle {
       self.y = p.y;
       self.z = p.z;
       camTarget.set(p.x, p.y + 1.2, p.z);
-      // 出生视角自动面朝「岛外」（海岸方向）：出生点在临海环带上，背靠岛心看海
+      // 出生视角自动面朝「岛外」（远离岛心方向）：办公楼在身后不抢出生画面的镜
       const c = (clientWorld.meta?.size ?? 256) / 2;
       const dx = p.x - c;
       const dz = p.z - c;

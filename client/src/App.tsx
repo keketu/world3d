@@ -261,6 +261,7 @@ export default function App() {
   const nearAgent = useWorld((s) => s.nearAgent);
   const nearOwnAgent = useWorld((s) => s.nearOwnAgent);
   const possessAgent = useWorld((s) => s.possessAgent);
+  const controlMode = useWorld((s) => s.settings.controlMode);
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -354,11 +355,13 @@ export default function App() {
           <div className="hint">
             {inRoom
               ? possessAgent
-                ? `🎭 你是 ${possessAgent.name}：WASD/点击行走 · 聊天框=以 TA 名义说话 · E 退出附身`
-                : "点击地面行走 · WASD 移动 · 点 📋 派项目（E）· 🎭 附身自己的员工（E）· 走到门口离开"
+                ? `🎭 你是 ${possessAgent.name}：${controlMode === "keyboard" ? "WASD 行走" : "点击行走"} · 聊天框=以 TA 名义说话 · E 退出附身`
+                : `${controlMode === "keyboard" ? "WASD 移动" : "点击地面行走"} · 点 📋 派项目（E）· 🎭 附身自己的员工（E）· 走到门口离开`
               : isTouch
                 ? "点击地面行走 · 选中道具后点地放置 · 长按拆除 · 单指拖动转视角 · 双指缩放"
-                : "点击地面行走 · WASD 移动 · 选道具（2-7）点地放置 · 右键拆除 · 拖拽转视角（⚙可调灵敏度）· V 切换视角"}
+                : controlMode === "keyboard"
+                  ? "WASD 移动 · 选道具（2-7）点地放置 · 右键拆除 · 拖拽转视角（⚙可调灵敏度）· V 切换视角"
+                  : "点击地面行走 · 选道具（2-7）点地放置 · 右键拆除 · 拖拽转视角（⚙可调灵敏度）· V 切换视角"}
           </div>
         </div>
       )}

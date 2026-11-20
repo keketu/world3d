@@ -126,7 +126,7 @@ class RoomHost {
     const st = charSystem.states.get(agentId);
     if (st && this.deps) this.deps.setSelf(st.x, 0, st.z, st.rotY);
     useWorld.getState().setPossessAgent({ id: agentId, name });
-    useWorld.getState().pushToast(`🎭 已化身 ${name}（WASD/点击移动，聊天=以 TA 名义说话）`);
+    useWorld.getState().pushToast(`🎭 已化身 ${name}（按当前操作方式移动，聊天=以 TA 名义说话）`);
   }
 
   /** 结束附身：身体停在原地，AI 带员工回工位 */
