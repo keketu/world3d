@@ -183,6 +183,9 @@ export function cityLots(): CityLot[] {
   const lots: CityLot[] = [];
   const colName = (b: number) => ["", "西", "中", "东", ""][b];
   const rowName = (b: number) => ["", "北", "中", "南", ""][b];
+  /** 全局唯一序号（按 kind 独立计数），避免「重合乱牌」 */
+  const seq: Record<string, number> = { tower: 0, shop: 0 };
+  const zhNum = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
   const emit = (block: string, kind: "tower" | "shop", slots: Array<{ x: number; z: number }>) => {
     const [cs, rs] = block.split("-");
     const cx = blockCenter(Number(cs));
@@ -198,7 +201,9 @@ export function cityLots(): CityLot[] {
         rotY: faceRoad(x, z),
         variant: kind === "tower" ? TOWER_VARIANTS[Math.floor(rng() * TOWER_VARIANTS.length)] : SHOP_VARIANTS[Math.floor(rng() * SHOP_VARIANTS.length)],
         floors: 4 + Math.floor(rng() * 7), // 4..12 层
-        name: `${rowName(Number(rs))}街${colName(Number(cs))}座${kind === "tower" ? "写字楼" : "商铺"}`,
+        name: kind === "tower"
+          ? `${rowName(Number(rs))}街${zhNum[++seq.tower] ?? seq.tower + 1}号写字楼`
+          : `${rowName(Number(rs))}街${zhNum[++seq.shop] ?? seq.shop + 1}号商铺`,
       });
     }
   };

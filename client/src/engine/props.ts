@@ -27,15 +27,17 @@ function cone(r: number, h: number, color: string, x = 0, y = 0, z = 0): THREE.M
   return m;
 }
 
-function cyl(r1: number, r2: number, h: number, color: string, x = 0, y = 0, z = 0): THREE.Mesh {
+function cyl(r1: number, r2: number, h: number, color: string, x = 0, y = 0, z = 0, rotZ = 0): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, 12), mat(color));
   m.position.set(x, y, z);
+  if (rotZ) m.rotation.z = rotZ;
   return m;
 }
 
-function box(w: number, h: number, d: number, color: string, x = 0, y = 0, z = 0): THREE.Mesh {
+function box(w: number, h: number, d: number, color: string, x = 0, y = 0, z = 0, rotY = 0): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
   m.position.set(x, y, z);
+  if (rotY) m.rotation.y = rotY;
   return m;
 }
 
@@ -81,26 +83,42 @@ export function paintAndMerge(group: THREE.Group): THREE.BufferGeometry {
 
 function buildTree(variant: string, g: THREE.Group) {
   if (variant === "樱花") {
-    g.add(cyl(0.16, 0.26, 2.6, "#8a5b45", 0, 1.3, 0));
-    g.add(sphere(1.15, "#f5aec6", 0, 3.1, 0, 1.25));
-    g.add(sphere(0.8, "#f19cc0", 0.75, 2.6, 0.35));
-    g.add(sphere(0.65, "#f7bcd2", -0.65, 2.8, -0.45));
-    g.add(sphere(0.6, "#f5aec6", 0.15, 3.9, -0.25));
+    // 樱花：锥度树干 + 斜枝 + 三团花簇（粉白渐变）+ 散落花瓣
+    g.add(cyl(0.13, 0.2, 1.9, "#7a5240", 0, 0.95, 0));
+    g.add(cyl(0.07, 0.11, 0.9, "#7a5240", 0.28, 1.5, 0, 0.5));
+    g.add(sphere(0.95, "#f5aec6", 0, 2.5, 0, 1.15));
+    g.add(sphere(0.62, "#f7bcd2", 0.55, 2.15, 0.3));
+    g.add(sphere(0.55, "#f19cc0", -0.5, 2.3, -0.35));
+    g.add(sphere(0.5, "#fad4e2", 0.1, 3.25, -0.15));
+    g.add(sphere(0.34, "#fad4e2", -0.35, 2.9, 0.3));
+    g.add(sphere(0.09, "#f5aec6", 0.9, 0.35, 0.5));
+    g.add(sphere(0.08, "#f5aec6", -0.7, 0.28, -0.4));
   } else if (variant === "松") {
-    g.add(cyl(0.14, 0.2, 1.1, "#6b4a2f", 0, 0.55, 0));
-    g.add(cone(1.5, 1.8, "#3a7550", 0, 1.7, 0));
-    g.add(cone(1.15, 1.5, "#45855c", 0, 2.6, 0));
-    g.add(cone(0.8, 1.2, "#3a7550", 0, 3.4, 0));
+    // 松：可见树干 + 三层锥冠（越上越窄越深）+ 顶芽
+    g.add(cyl(0.12, 0.18, 0.9, "#6b4a2f", 0, 0.45, 0));
+    g.add(cone(1.35, 1.1, "#3a7550", 0, 1.35, 0));
+    g.add(cone(1.05, 1.0, "#45855c", 0, 2.05, 0));
+    g.add(cone(0.72, 0.9, "#3a7550", 0, 2.75, 0));
+    g.add(cone(0.16, 0.5, "#2c5e40", 0, 3.35, 0));
   } else if (variant === "白桦") {
-    g.add(cyl(0.13, 0.18, 2.4, "#e3ddd0", 0, 1.2, 0));
-    g.add(sphere(1.05, "#8cc06a", 0, 3.0, 0, 1.15));
+    // 白桦：白干黑环纹 + 双团亮冠
+    g.add(cyl(0.1, 0.15, 2.2, "#e3ddd0", 0, 1.1, 0));
+    g.add(cyl(0.155, 0.155, 0.05, "#3a352e", 0, 0.5, 0));
+    g.add(cyl(0.14, 0.14, 0.05, "#3a352e", 0, 1.0, 0));
+    g.add(cyl(0.125, 0.125, 0.05, "#3a352e", 0, 1.5, 0));
+    g.add(sphere(0.95, "#8cc06a", 0, 2.6, 0, 1.1));
+    g.add(sphere(0.5, "#a5cf7e", 0.45, 2.15, 0.3));
+    g.add(sphere(0.42, "#7cb35e", -0.4, 2.3, -0.3));
   } else {
-    g.add(cyl(0.18, 0.26, 1.7, "#7d5b3d", 0, 0.85, 0));
-    g.add(sphere(1.4, "#5da45e", 0, 2.7, 0));
-    g.add(sphere(0.8, "#6bb46a", 0.7, 2.2, 0.4));
+    // 橡树：粗干 + 大冠 + 内层暗球
+    g.add(cyl(0.16, 0.24, 1.5, "#7d5b3d", 0, 0.75, 0));
+    g.add(cyl(0.09, 0.13, 0.8, "#7d5b3d", 0.32, 1.3, 0, 0.6));
+    g.add(sphere(1.3, "#5da45e", 0, 2.45, 0, 1.1));
+    g.add(sphere(0.72, "#4e9450", -0.5, 1.95, -0.3));
+    g.add(sphere(0.62, "#6bb46a", 0.55, 2.1, 0.4));
+    g.add(sphere(0.45, "#6bb46a", 0.1, 3.0, -0.2));
   }
 }
-
 function buildFlowerBed(variant: string, g: THREE.Group) {
   const colors: Record<string, string> = { 红: "#d65050", 黄: "#e8c852", 粉: "#eb98ba", 白: "#f0f0eb" };
   const petal = colors[variant] ?? "#eb98ba";
@@ -118,21 +136,65 @@ function buildFlowerBed(variant: string, g: THREE.Group) {
 function buildHouse(variant: string, params: Record<string, unknown>, g: THREE.Group) {
   const w = Math.min(11, Math.max(3, Number(params?.w ?? 5)));
   const d = Math.min(11, Math.max(3, Number(params?.d ?? 5)));
-  const wallColor = variant === "石屋" ? "#c9c9cf" : "#f7ead2";
-  const roofColor = variant === "石屋" ? "#8a92a3" : "#e2907e";
+  const stone = variant === "石屋";
+  const wallColor = stone ? "#c9c9cf" : "#f7ead2";
+  const roofColor = stone ? "#8a92a3" : "#e2907e";
+  const beam = stone ? "#8f96a3" : "#8a6a48"; // 半木结构深色木架（石屋用石框）
   const H = 2.2;
   g.add(box(w, H, d, wallColor, 0, H / 2, 0));
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.78, 1.5, 4), mat(roofColor));
-  roof.position.y = H + 0.75;
+
+  // 半木结构：横梁（顶/中）+ 竖柱（前后左右立面）
+  const beams = (axis: "x" | "z") => {
+    if (axis === "x") {
+      for (const zz of [-d / 2 - 0.03, d / 2 + 0.03]) {
+        g.add(box(w + 0.06, 0.09, 0.06, beam, 0, H - 0.35, zz));
+        g.add(box(w + 0.06, 0.09, 0.06, beam, 0, 0.5, zz));
+      }
+      for (const xx of [-w / 2 + w * 0.25, w * 0.0, w / 2 - w * 0.25]) {
+        g.add(box(0.09, H, 0.06, beam, xx, H / 2, -d / 2 - 0.03));
+        g.add(box(0.09, H, 0.06, beam, xx, H / 2, d / 2 + 0.03));
+      }
+    } else {
+      for (const xx of [-w / 2 - 0.03, w / 2 + 0.03]) {
+        g.add(box(0.06, 0.09, d + 0.06, beam, xx, H - 0.35, 0));
+        g.add(box(0.06, 0.09, d + 0.06, beam, xx, 0.5, 0));
+      }
+      for (const zz of [-d / 2 + d * 0.3, d * 0.0, -d * 0.3]) {
+        g.add(box(0.06, H, 0.09, beam, -w / 2 - 0.03, H / 2, zz));
+        g.add(box(0.06, H, 0.09, beam, w / 2 + 0.03, H / 2, zz));
+      }
+    }
+  };
+  beams("x");
+  beams("z");
+
+  // 四坡屋顶（上下双锥叠出瓦檐）+ 屋脊
+  const roofH = 1.5;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.82, roofH, 4), mat(roofColor));
+  roof.position.y = H + roofH / 2;
   roof.rotation.y = Math.PI / 4;
   roof.scale.set(d / Math.max(w, d), 1, w / Math.max(w, d));
   g.add(roof);
-  g.add(box(0.9, 1.5, 0.1, "#7d5b3d", 0, 0.75, d / 2 + 0.03));
-  g.add(box(0.7, 0.6, 0.06, "#bcd8f5", -w / 4, 1.3, d / 2 + 0.03));
-  g.add(box(0.7, 0.6, 0.06, "#bcd8f5", w / 4, 1.3, d / 2 + 0.03));
-  g.add(box(0.4, 0.9, 0.4, variant === "石屋" ? "#9a9aa3" : "#c9a06a", w / 3, H + 1.2, -d / 4));
-}
+  const ridgeLen = Math.max(w, d) * 0.55;
+  g.add(box(ridgeLen, 0.14, 0.3, stone ? "#6f7684" : "#c96a5a", 0, H + roofH - 0.28, 0, Math.PI / 4));
 
+  // 烟囱（+烟灰缸口）
+  g.add(box(0.4, 1.2, 0.4, stone ? "#9a9aa3" : "#c9a06a", w / 3, H + roofH + 0.2, -d / 4));
+  g.add(box(0.48, 0.14, 0.48, stone ? "#6f7684" : "#8a6a48", w / 3, H + roofH + 0.82, -d / 4));
+
+  // 门（+z 面）：门框 + 门板 + 台阶
+  g.add(box(1.1, 1.9, 0.08, beam, 0, 0.95, d / 2 + 0.04));
+  g.add(box(0.9, 1.7, 0.06, "#a8805a", 0, 0.92, d / 2 + 0.09));
+  g.add(sphere(0.05, "#e8c45a", 0.3, 0.95, d / 2 + 0.13));
+  g.add(box(1.3, 0.12, 0.5, stone ? "#9a9aa3" : "#c9a06a", 0, 0.06, d / 2 + 0.2));
+
+  // 窗 ×2（+z 面）：窗框 + 玻璃 + 窗台
+  for (const xx of [-w / 4, w / 4]) {
+    g.add(box(0.8, 0.7, 0.07, beam, xx, 1.35, d / 2 + 0.04));
+    g.add(box(0.66, 0.56, 0.05, "#bcd8f5", xx, 1.35, d / 2 + 0.08));
+    g.add(box(0.86, 0.09, 0.16, stone ? "#9a9aa3" : "#c9a06a", xx, 0.96, d / 2 + 0.06));
+  }
+}
 function buildFence(params: Record<string, unknown>, g: THREE.Group) {
   const len = Math.min(30, Math.max(4, Number(params?.len ?? 7)));
   const half = len / 2;
@@ -286,6 +348,17 @@ function buildShop(variant: string, params: Record<string, unknown>, g: THREE.Gr
   g.add(box(0.1, 1.2, 1.6, "#bcd8f5", -w / 2 - 0.04, 1.3, 0));
 }
 
+/** 路灯（街景）：基座 + 锥度灯杆 + 横臂 + 自发光暖光灯罩 */
+function buildLamp(g: THREE.Group) {
+  g.add(cyl(0.16, 0.2, 0.18, "#6f6a60", 0, 0.09, 0)); // 基座
+  g.add(cyl(0.05, 0.075, 2.6, "#3d4247", 0, 1.48, 0)); // 杆
+  g.add(box(0.08, 0.08, 0.72, "#3d4247", 0, 2.72, 0.34)); // 横臂（朝 +z）
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12), new THREE.MeshBasicMaterial({ color: "#ffe9b8" }));
+  bulb.position.set(0, 2.66, 0.62);
+  g.add(bulb); // 自发光灯罩
+  g.add(cyl(0.1, 0.14, 0.08, "#3d4247", 0, 2.86, 0.62)); // 灯帽
+}
+
 export interface PropMeshResult {
   mesh: THREE.Mesh;
   /** 标注浮签高度 */
@@ -326,6 +399,10 @@ export function buildProp(o: WorldObject): PropMeshResult {
     case "shop":
       buildShop(o.variant, o.params ?? {}, g);
       labelY = 6.8;
+      break;
+    case "lamp":
+      buildLamp(g);
+      labelY = 0;
       break;
     case "fence":
       buildFence(o.params ?? {}, g);

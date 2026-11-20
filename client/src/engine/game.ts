@@ -1209,7 +1209,7 @@ export function startGame(container: HTMLElement): GameHandle {
     // 9. 产权标注浮签
     if (st.showOwnerLabels) {
       for (const [objId, pm] of propMeshes) {
-        if (pm.kind === "path") continue;
+        if (pm.kind === "path" || pm.kind === "lamp") continue;
         const o = clientWorld.objects.get(objId);
         const icon = propIcon(pm.kind);
         setLabel(

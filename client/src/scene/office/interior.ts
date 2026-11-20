@@ -69,6 +69,17 @@ function palette(kind: string, variant: string) {
 export function buildInteriorRoom(opts: InteriorOpts): InteriorRoom {
   const group = new THREE.Group();
   const P = palette(opts.kind, opts.variant);
+  // 家具布置的确定性随机（书架书宽/颜色等微差）
+  const rng = (() => {
+    let a = 987654321;
+    return () => {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  })();
   // 室内可行走区：外壳内缩 0.7（墙厚 0.24 + 家具余量）
   const hw = Math.max(2.2, opts.w / 2 - 0.7);
   const hd = Math.max(2.2, opts.d / 2 - 0.7);
@@ -103,18 +114,34 @@ export function buildInteriorRoom(opts: InteriorOpts): InteriorRoom {
 
   // ---- 家具 ----
   if (opts.kind === "house") {
-    // 床（-x 角）+ 桌椅（+x 侧）+ 地毯 + 吊灯
+    // 地毯 + 床（枕头/褥子/床尾板）+ 书桌椅 + 书架 + 挂画 + 吊灯
+    parts.push(box(2.2, 0.04, 1.8, "#c96a5a", -hw / 2, 0.02, hd / 2)); // 地毯
     parts.push(box(1.5, 0.3, 2.4, P.fabric, -hw + 1.0, 0.22, -hd + 1.5));
-    parts.push(box(1.5, 0.16, 0.5, "#f7f4ea", -hw + 1.0, 0.44, -hd + 0.75));
-    parts.push(box(0.5, 0.5, 0.4, P.wood, -hw + 1.0, 0.25, hd - 1.0));
+    parts.push(box(1.36, 0.1, 2.26, "#f7f4ea", -hw + 1.0, 0.4, -hd + 1.5)); // 褥子
+    parts.push(box(1.2, 0.18, 0.5, "#f7f4ea", -hw + 1.0, 0.5, -hd + 0.75)); // 枕头
+    parts.push(box(1.44, 0.08, 0.1, P.trim, -hw + 1.0, 0.42, -hd + 2.72)); // 床尾板
     parts.push(box(1.4, 0.08, 0.9, P.wood, hw - 1.4, 0.75, hd - 1.6));
     for (const [lx, lz] of [[-0.55, -0.3], [0.55, -0.3], [-0.55, 0.3], [0.55, 0.3]]) {
       parts.push(cyl(0.05, 0.05, 0.75, P.trim, hw - 1.4 + lx, 0.38, hd - 1.6 + lz));
     }
     parts.push(cyl(0.05, 0.05, 0.5, P.wood, hw - 1.4, 1.05, hd - 1.6));
-    parts.push(cyl(0.3, 0.35, 0.06, P.fabric, 0, 2.6, 0));
-    parts.push(sph(0.16, "#f2d998", 0, 2.45, 0, true));
-  } else if (opts.kind === "shop") {
+    // 书架（-z 墙边）：框架 + 三层书
+    parts.push(box(1.8, 1.9, 0.36, P.wood, -hw + 1.2, 0.95, -hd + 0.25));
+    for (let i = 0; i < 3; i++) {
+      parts.push(box(1.6, 0.07, 0.3, "#f7f4ea", -hw + 1.2, 0.5 + i * 0.6, -hd + 0.25));
+      let bx = -hw + 0.55;
+      while (bx < -hw + 1.8) {
+        const bw = 0.08 + rng() * 0.12;
+        const colors = ["#e2907e", "#7aa6d8", "#7bb98a", "#e8c45a", "#b56a4e"];
+        parts.push(box(bw, 0.36, 0.24, colors[Math.floor(rng() * colors.length)], bx + bw / 2, 0.7 + i * 0.6, -hd + 0.25));
+        bx += bw + 0.04;
+      }
+    }
+    // 挂画（-z 墙）
+    parts.push(box(1.1, 0.8, 0.06, P.wood, hw - 1.5, 1.7, -hd + 0.1));
+    parts.push(box(0.94, 0.64, 0.04, "#bcd8f5", hw - 1.5, 1.7, -hd + 0.16));
+    parts.push(sph(0.2, "#f2d998", 0, 2.6, 0, true));
+    } else if (opts.kind === "shop") {
     // 柜台（中后）+ 货架 ×2（-x / -z 墙边）+ 圆凳
     parts.push(box(2.6, 0.95, 0.7, P.wood, 0, 0.48, -hd + 1.2));
     parts.push(box(2.6, 0.08, 0.8, "#f7f4ea", 0, 1.0, -hd + 1.2));

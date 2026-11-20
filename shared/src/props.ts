@@ -94,6 +94,13 @@ export const PROP_KINDS: Record<string, PropKindDef> = {
       { variant: "陶土红", label: "陶土红写字楼", icon: "🏢" },
     ],
   },
+  lamp: {
+    kind: "lamp",
+    label: "路灯",
+    collideR: 0.3,
+    icon: "💡",
+    variants: [{ variant: "暖光", label: "暖光路灯", icon: "💡" }],
+  },
   shop: {
     kind: "shop",
     label: "商铺",

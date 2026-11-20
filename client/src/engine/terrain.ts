@@ -183,6 +183,63 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
     for (const Lz of ROAD_LINES) crosswalk(g, Lx, Lz);
   }
 
+  // 8) 人行道砖缝（沿路的横缝 + 纵缝，浅色细线）
+  g.strokeStyle = "rgba(120,110,96,0.35)";
+  g.lineWidth = m2p(0.06);
+  for (const L of ROAD_LINES) {
+    for (const s of [-1, 1]) {
+      const band0 = m2p(L + s * (ROAD_HALF + 0.2));
+      const band1 = m2p(L + s * (ROAD_HALF + SIDEWALK_W - 0.2));
+      for (let t = m2p(8); t <= m2p(size - 8); t += m2p(2.2)) {
+        // 横缝（垂直于路方向）
+        g.beginPath();
+        if (band1 > band0) {
+          g.moveTo(band0, t);
+          g.lineTo(band1, t);
+        } else {
+          g.moveTo(band1, t);
+          g.lineTo(band0, t);
+        }
+        g.stroke();
+        g.beginPath();
+        g.moveTo(t, band0);
+        g.lineTo(t, band1);
+        g.stroke();
+      }
+    }
+  }
+
+  // 9) 路面磨损：深浅沥青斑块 + 井盖圆
+  const roadRng = mulberry32(WORLD_SEED ^ 0x77656172); // "wear"
+  for (let i = 0; i < 260; i++) {
+    const L = ROAD_LINES[Math.floor(roadRng() * ROAD_LINES.length)];
+    const along = m2p(8 + roadRng() * (size - 16));
+    const across = m2p(L + (roadRng() - 0.5) * ROAD_HALF * 1.6);
+    const r = m2p(0.3 + roadRng() * 0.9);
+    g.fillStyle = roadRng() > 0.5 ? "rgba(30,28,26,0.25)" : "rgba(120,116,110,0.18)";
+    if (roadRng() > 0.5) {
+      g.fillRect(across - r, along - r * 0.6, r * 2, r * 1.2);
+    } else {
+      g.beginPath();
+      g.arc(across, along, r, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  for (const L of ROAD_LINES) {
+    for (const M of ROAD_LINES) {
+      // 井盖：路口附近的圆形铁盖
+      const mx = m2p(L + 2.6);
+      const mz = m2p(M - 2.6);
+      g.fillStyle = "#4a4740";
+      g.beginPath();
+      g.arc(mx, mz, m2p(0.55), 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = "#5d594f";
+      g.lineWidth = m2p(0.08);
+      g.stroke();
+    }
+  }
+
   return canvas;
 }
 

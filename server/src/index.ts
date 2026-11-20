@@ -255,6 +255,35 @@ builder.attach(io);
       }
     }
   }
+  // 街道路灯：沿主干道 96/160 两条轴线（广场两侧），人行道外缘单侧交错布置
+  const lampLines = [96, 160];
+  const lampRng = mulberry32(WORLD_SEED ^ 0x6c616d70); // "lamp"
+  for (const L of lampLines) {
+    for (const axis of [0, 1]) {
+      let side = lampRng() > 0.5 ? 1 : -1;
+      for (let t = 42; t <= 214; t += 22) {
+        // 跳过与另一轴主干道交叉的路口段
+        const nearCross = lampLines.some((X) => Math.abs(t - X) < 9);
+        if (nearCross) continue;
+        const off = 5.5 + 1.2 * side;
+        const x = axis === 0 ? L + off : t;
+        const zz = axis === 0 ? t : L + off;
+        if (!world.isLand(Math.floor(x), Math.floor(zz))) continue;
+        const exists = [...world.objects.values()].some((o) => o.creatorId === "system" && o.kind === "lamp" && Math.hypot(o.x - x, o.z - zz) < 2);
+        if (exists) continue;
+        if (!world.validatePlacement("lamp", x, zz).ok) continue;
+        // 灯臂朝向道路：横臂在局部 +z，rotY 让它指向路面中心
+        const rotY = axis === 0 ? (side > 0 ? -Math.PI / 2 : Math.PI / 2) : side > 0 ? Math.PI : 0;
+        const row = world.addObject(
+          { kind: "lamp", variant: "暖光", x, z: zz, rotY, scale: 1, creatorId: "system", creatorName: "小世界城建", createdAt: Date.now(), params: {} },
+          {}
+        );
+        db.insertObject(row);
+      }
+      side *= -1;
+    }
+  }
+
   for (const zone of zones) {
     const w = zone.x1 - zone.x0;
     const h = zone.z1 - zone.z0;

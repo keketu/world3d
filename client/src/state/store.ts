@@ -29,10 +29,19 @@ export const DEFAULT_SETTINGS: Settings = {
   keyboardSpeed: 1,
 };
 
+/** 触屏设备（手机/平板没有物理键盘，默认用点击行走） */
+export function isTouchDevice(): boolean {
+  return typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
+}
+
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem("w3d_settings");
-    if (!raw) return { ...DEFAULT_SETTINGS };
+    if (!raw) {
+      // 首次使用：触屏设备默认点击行走（WASD 在手机上不存在）
+      const mode: ControlMode = isTouchDevice() ? "mouse" : DEFAULT_SETTINGS.controlMode;
+      return { ...DEFAULT_SETTINGS, controlMode: mode };
+    }
     const parsed = JSON.parse(raw) as Partial<Settings> & { keyboardMove?: boolean };
     // 旧版迁移：原来的 keyboardMove 开关映射为新的二选一 controlMode
     if (parsed.controlMode !== "keyboard" && parsed.controlMode !== "mouse" && typeof parsed.keyboardMove === "boolean") {

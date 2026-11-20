@@ -95,6 +95,38 @@ export function createAvatar(name: string, color: string): Avatar {
   const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.017, 8, 8), eyeMat);
   eyeR.position.set(0.062, 0, 0.168);
   head.add(eyeR);
+  // 嘴：小圆点
+  const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 8), stdMat("#a85454"));
+  mouth.position.set(0.01, -0.062, 0.172);
+  head.add(mouth);
+  // 腮红：两颗粉点
+  const blushMat = stdMat("#f0a8a0");
+  const blushL = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), blushMat);
+  blushL.position.set(-0.098, -0.045, 0.15);
+  head.add(blushL);
+  const blushR = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), blushMat);
+  blushR.position.set(0.098, -0.045, 0.15);
+  head.add(blushR);
+  // 帽子（三成角色有）：鸭舌帽/毛线帽
+  const hatRoll = h % 10;
+  if (hatRoll < 3) {
+    const hatColors = ["#c65f76", "#5b8def", "#7bb98a", "#e8a05a"];
+    const hatC = hatColors[hatRoll % hatColors.length];
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.03, 14), stdMat(hatC));
+    brim.position.set(0, 0.14, 0.03);
+    head.add(brim);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.185, 14, 14, 0, Math.PI * 2, 0, Math.PI * 0.42), stdMat(hatC));
+    cap.position.set(0, 0.13, -0.01);
+    cap.scale.set(1.02, 0.9, 1.02);
+    head.add(cap);
+  }
+  // 领口/腰带
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.17, 0.05, 12), stdMat("#f7f4ea"));
+  collar.position.y = 0.53;
+  bodyGroup.add(collar);
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.045, 12), stdMat("#3d4252"));
+  belt.position.y = 0.33;
+  bodyGroup.add(belt);
   bodyGroup.add(head);
 
   return { group, legL, legR, armL, armR, bodyGroup, head };
