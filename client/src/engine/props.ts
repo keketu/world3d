@@ -2,6 +2,7 @@
 // 每件道具合并为单 Mesh（顶点色）= 1 draw call；顶点焊接 → 圆润平滑着色
 import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { textTexture } from "../konbini/build";
 import { WorldObject } from "@world3d/shared";
 
 const matCache = new Map<string, THREE.MeshLambertMaterial>();
@@ -348,6 +349,108 @@ function buildShop(variant: string, params: Record<string, unknown>, g: THREE.Gr
   g.add(box(0.1, 1.2, 1.6, "#bcd8f5", -w / 2 - 0.04, 1.3, 0));
 }
 
+/** 便利店（系统地标，致敬 konbini 微缩景观）：白盒+蓝檐+大玻璃橱窗透亮内饰+贩卖机×2+发光招牌，门朝 +z */
+function buildKonbini(params: Record<string, unknown>, g: THREE.Group) {
+  const w = Math.min(12, Math.max(10, Number(params?.w ?? 11)));
+  const d = Math.min(8, Math.max(6, Number(params?.d ?? 7)));
+  const H = 3.3;
+
+  // 主体白盒（后墙/侧墙/矮前墙）
+  g.add(box(w, H, d, "#f2ede2", 0, H / 2, 0));
+  g.add(box(w + 0.5, 0.3, d + 0.5, "#303744", 0, H + 0.15, 0)); // 屋顶板
+  // 檐口深蓝带 + 招牌（白底蓝字「コンビニ」自发光）
+  g.add(box(w + 0.5, 0.6, 0.2, "#1e3a5f", 0, H - 0.35, d / 2 + 0.14));
+  const sign = new THREE.Mesh(
+    new THREE.BoxGeometry(5.6, 1.0, 0.12),
+    new THREE.MeshBasicMaterial({ map: textTexture("コンビニ", { bg: "#f4f2ec", fg: "#1e3a5f", border: "#1e3a5f" }) })
+  );
+  sign.position.set(0, H + 0.18, d / 2 + 0.28);
+  g.add(sign);
+
+  // 大玻璃橱窗（+z 前脸，三段，透过可见内饰）
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: "#9fd2e8",
+    transparent: true,
+    opacity: 0.15,
+    roughness: 0.06,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+  const pane = (pw: number, px2: number) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(pw - 0.12, H - 0.75, 0.06), glassMat);
+    m.position.set(px2, 0.75 + (H - 0.75) / 2, d / 2 + 0.04);
+    g.add(m);
+  };
+  pane(2.6, -w / 2 + 1.4);
+  pane(2.2, 0.15);
+  pane(2.6, w / 2 - 1.4);
+  for (const px2 of [-w / 2 + 1.4, -0.95, 0.95, w / 2 - 1.4]) {
+    g.add(box(0.14, H - 0.75, 0.14, "#3a3f47", px2, 0.75 + (H - 0.75) / 2, d / 2 + 0.02));
+  }
+
+  // 透亮内饰（嵌在外壳里，玻璃外可见）：棋盘地板 / 货架两排彩色商品 / 后墙冷柜 / 收银台
+  const ib = (c: string) => new THREE.MeshBasicMaterial({ color: c });
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(w - 0.6, 0.06, d - 0.6), ib("#e8e4d8"));
+  floor.position.set(0, 0.03, 0);
+  g.add(floor);
+  const floorGrid = new THREE.Mesh(
+    new THREE.BoxGeometry(w - 0.6, 0.02, d - 0.6),
+    new THREE.MeshBasicMaterial({ color: "#cfc8b8" })
+  );
+  floorGrid.position.set(0, 0.02, 0);
+  g.add(floorGrid);
+  for (const sx of [-2.2, 0.4]) {
+    g.add(box(0.7, 1.5, d - 2.4, "#d8d2c4", sx, 0.78, -0.4));
+    for (let tier = 0; tier < 3; tier++) {
+      g.add(box(0.78, 0.06, d - 2.5, "#cfc8b8", sx, 0.5 + tier * 0.45, -0.4));
+      const colors = ["#e8604a", "#53a8e0", "#f2b64e", "#7bb98a", "#c97ad8"];
+      for (let i = 0; i < Math.floor(d - 2.8); i++) {
+        g.add(box(0.24, 0.28, 0.26, colors[(tier * 3 + i) % 5], sx, 0.72 + tier * 0.45, -1.4 + i * 0.36));
+      }
+    }
+  }
+  g.add(box(4.4, 1.8, 0.45, "#2c3242", 1.4, 0.95, -d / 2 + 0.35)); // 后墙冷柜
+  g.add(box(4.0, 1.5, 0.08, "#9fd8ef", 1.4, 1.1, -d / 2 + 0.6));
+  for (let i = 0; i < 7; i++) {
+    g.add(box(0.3, 0.4, 0.2, ["#e8604a", "#53a8e0", "#f2b64e"][i % 3], -0.2 + i * 0.55, 0.75 + (i % 3) * 0.45, -d / 2 + 0.45));
+  }
+  g.add(box(1.6, 0.9, 0.7, "#e2d6bc", w / 2 - 1.3, 0.48, d / 2 - 1.2)); // 收银台
+  g.add(box(0.5, 0.35, 0.35, "#2c3242", w / 2 - 1.5, 1.15, d / 2 - 1.2));
+
+  // 自动门（双开玻璃，门洞在中右）
+  g.add(box(0.14, H - 0.75, 0.14, "#3a3f47", -1.0, 0.75 + (H - 0.75) / 2, d / 2 + 0.02));
+  g.add(box(0.14, H - 0.75, 0.14, "#3a3f47", 1.3, 0.75 + (H - 0.75) / 2, d / 2 + 0.02));
+  const doorGlass = new THREE.Mesh(new THREE.BoxGeometry(2.1, H - 0.78, 0.06), glassMat);
+  doorGlass.position.set(0.15, 0.78 + (H - 0.78) / 2, d / 2 + 0.05);
+  g.add(doorGlass);
+  // 感应盒 + 地垫
+  g.add(box(0.4, 0.16, 0.2, "#3a3f47", 0.15, H - 0.42, d / 2 + 0.16));
+  g.add(box(1.7, 0.05, 0.9, "#3d4252", 0.15, 0.03, d / 2 + 0.55));
+
+  // 屋檐雨棚（门前）
+  g.add(box(w * 0.55, 0.14, 1.2, "#3a6ea8", -w * 0.1, 2.62, d / 2 + 0.5));
+
+  // 贩卖机 ×2（门前右侧贴墙）
+  const vend = (vx: number, color: string) => {
+    g.add(box(1.0, 1.85, 0.75, color, vx, 0.93, d / 2 + 0.35));
+    const face = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.25, 0.06), ib("#bfd8e8"));
+    face.position.set(vx, 1.12, d / 2 + 0.74);
+    g.add(face);
+    for (let i = 0; i < 4; i++) {
+      g.add(box(0.1, 0.1, 0.05, "#ffdfae", vx - 0.28 + i * 0.2, 1.56, d / 2 + 0.78));
+    }
+  };
+  vend(w / 2 - 0.8, "#c9503e");
+  vend(w / 2 - 0.8 - 1.15, "#3a6ea8");
+
+  // 空调外机（右墙高位）+ 公告栏（左墙）
+  g.add(box(0.85, 0.66, 0.4, "#d8d4ca", w / 2 + 0.18, 2.55, -d / 4));
+  g.add(box(1.5, 1.05, 0.08, "#6b4a2f", -w / 2 - 0.06, 1.7, -d / 6));
+  for (const [yy, cc] of [[1.85, "#f2e3cd"], [1.5, "#bcd8f5"]] as Array<[number, string]>) {
+    g.add(box(0.55, 0.4, 0.04, cc, -w / 2 - 0.12, yy, -d / 6));
+  }
+}
+
 /** 路灯（街景）：基座 + 锥度灯杆 + 横臂 + 自发光暖光灯罩 */
 function buildLamp(g: THREE.Group) {
   g.add(cyl(0.16, 0.2, 0.18, "#6f6a60", 0, 0.09, 0)); // 基座
@@ -399,6 +502,10 @@ export function buildProp(o: WorldObject): PropMeshResult {
     case "shop":
       buildShop(o.variant, o.params ?? {}, g);
       labelY = 6.8;
+      break;
+    case "konbini":
+      buildKonbini(o.params ?? {}, g);
+      labelY = 7.5;
       break;
     case "lamp":
       buildLamp(g);

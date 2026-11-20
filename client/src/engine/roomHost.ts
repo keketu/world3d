@@ -233,7 +233,7 @@ class RoomHost {
         const objectId = h.roomId.slice(h.roomType.length + 1);
         const o = clientWorld.objects.get(objectId);
         const size = buildingSize(o?.kind ?? h.roomType, o?.params);
-        entry = buildInteriorRoom({ kind: h.roomType as "house" | "shop" | "tower", variant: o?.variant ?? "", w: size.w, d: size.d });
+        entry = buildInteriorRoom({ kind: h.roomType as "house" | "shop" | "tower" | "konbini", variant: o?.variant ?? "", w: size.w, d: size.d });
         scene.add(entry.group);
         this.interiors.set(h.roomId, entry);
       }

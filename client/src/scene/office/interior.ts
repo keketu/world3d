@@ -26,7 +26,7 @@ function sph(r: number, color: string, x: number, y: number, z: number, glow = f
 }
 
 export interface InteriorOpts {
-  kind: "house" | "shop" | "tower";
+  kind: "house" | "shop" | "tower" | "konbini";
   variant: string;
   /** 建筑外壳尺寸（与 buildHouse/buildTower/buildShop 同源的 clamp 值） */
   w: number;
@@ -113,7 +113,53 @@ export function buildInteriorRoom(opts: InteriorOpts): InteriorRoom {
   parts.push(box(1.8, 1.1, 0.1, P.glass, 0, 1.5, -hd - 0.16, 0, true));
 
   // ---- 家具 ----
-  if (opts.kind === "house") {
+  if (opts.kind === "konbini") {
+    // 便利店内饰（平涂亮色，透过玻璃/进屋都明亮）：棋盘地板 + 双排货架 + 后墙冷柜 + 收银台
+    const checker = (() => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 96;
+      const gg = c.getContext("2d")!;
+      gg.fillStyle = "#e8e4d8";
+      gg.fillRect(0, 0, 96, 96);
+      gg.fillStyle = "#c9c3b4";
+      for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) if ((i + j) % 2 === 0) gg.fillRect(i * 16, j * 16, 16, 16);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    })();
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(W, 0.08, D), new THREE.MeshBasicMaterial({ map: checker }));
+    floor.position.set(0, -0.04, 0);
+    group.add(floor);
+    const goods = ["#e8604a", "#53a8e0", "#f2b64e", "#7bb98a", "#c97ad8", "#f0e0e8"];
+    // 双排货架（沿 x）
+    for (const rz of [-hd / 2 + 0.4, hd / 2 - 1.6]) {
+      group.add(new THREE.Mesh(new THREE.BoxGeometry(W - 3.4, 1.5, 0.7), new THREE.MeshBasicMaterial({ color: "#d8d2c4" })));
+      const shelf = group.children[group.children.length - 1];
+      shelf.position.set(0, 0.75, rz);
+      for (let tier = 0; tier < 3; tier++) {
+        const board = new THREE.Mesh(new THREE.BoxGeometry(W - 3.3, 0.05, 0.66), new THREE.MeshBasicMaterial({ color: "#cfc8b8" }));
+        board.position.set(0, 0.42 + tier * 0.45, rz);
+        group.add(board);
+        const cols = Math.floor((W - 3.6) / 0.4);
+        for (let i = 0; i < cols; i++) {
+          const it = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.28, 0.26), new THREE.MeshBasicMaterial({ color: goods[(tier * 2 + i) % goods.length] }));
+          it.position.set(-(W - 3.8) / 2 + 0.2 + i * 0.4, 0.62 + tier * 0.45, rz);
+          group.add(it);
+        }
+      }
+    }
+    // 后墙冷柜（-z）
+    const cooler = new THREE.Mesh(new THREE.BoxGeometry(W - 4, 1.8, 0.4), new THREE.MeshBasicMaterial({ color: "#2c3242" }));
+    cooler.position.set(0, 0.95, -hd + 0.28);
+    group.add(cooler);
+    const coolerGlass = new THREE.Mesh(new THREE.BoxGeometry(W - 4.3, 1.5, 0.06), new THREE.MeshBasicMaterial({ color: "#9fd8ef" }));
+    coolerGlass.position.set(0, 0.98, -hd + 0.5);
+    group.add(coolerGlass);
+    // 收银台（+z 角）
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 0.7), new THREE.MeshBasicMaterial({ color: "#e2d6bc" }));
+    counter.position.set(hw - 1.3, 0.45, hd - 0.9);
+    group.add(counter);
+  } else if (opts.kind === "house") {
     // 地毯 + 床（枕头/褥子/床尾板）+ 书桌椅 + 书架 + 挂画 + 吊灯
     parts.push(box(2.2, 0.04, 1.8, "#c96a5a", -hw / 2, 0.02, hd / 2)); // 地毯
     parts.push(box(1.5, 0.3, 2.4, P.fabric, -hw + 1.0, 0.22, -hd + 1.5));

@@ -94,6 +94,13 @@ export const PROP_KINDS: Record<string, PropKindDef> = {
       { variant: "陶土红", label: "陶土红写字楼", icon: "🏢" },
     ],
   },
+  konbini: {
+    kind: "konbini",
+    label: "便利店",
+    collideR: 5.2,
+    icon: "🏪",
+    variants: [{ variant: "小世界便利店", label: "小世界便利店", icon: "🏪" }],
+  },
   lamp: {
     kind: "lamp",
     label: "路灯",
@@ -115,7 +122,7 @@ export const PROP_KINDS: Record<string, PropKindDef> = {
 };
 
 /** 大型建筑 kind（享受宅基地整平 / 相机避让 / 落座逻辑） */
-export const BUILDING_KINDS = new Set(["house", "office", "tower", "shop"]);
+export const BUILDING_KINDS = new Set(["house", "office", "tower", "shop", "konbini"]);
 
 export function isBuildingKind(kind: string): boolean {
   return BUILDING_KINDS.has(kind);
@@ -127,6 +134,7 @@ export const BUILDING_DIMS: Record<string, { w: [number, number, number]; d: [nu
   tower: { w: [6, 10, 8], d: [6, 10, 8], f: [4, 12, 6] },
   shop: { w: [5, 8, 6], d: [5, 8, 6], f: [4, 12, 6] },
   office: { w: [8, 8, 8], d: [6, 6, 6], f: [2, 2, 2] },
+  konbini: { w: [11, 11, 11], d: [7, 7, 7], f: [1, 1, 1] },
 };
 
 /** 读取建筑的实际外壳尺寸（params 按 clamp 表收敛） */

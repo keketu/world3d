@@ -36,6 +36,7 @@ const FOOTPRINT: Record<string, number> = {
   tower: 5.2,
   shop: 3.8,
   lamp: 0.4,
+  konbini: 5.6,
 };
 
 export class World {

@@ -65,6 +65,7 @@ class ClientWorld {
         hz: (Math.min(t.hi, Math.max(t.lo, Number(o.params?.d ?? t.def))) / 2) * s,
       };
     }
+    if (o.kind === "konbini") return { hx: 5.5 * s, hz: 3.5 * s }; // 便利店 11×7
     return { hx: 4.1 * s, hz: 3.1 * s }; // 办公楼主体 8×6
   }
 

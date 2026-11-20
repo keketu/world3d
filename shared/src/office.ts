@@ -288,7 +288,7 @@ export interface AgentMoveEvent {
 /** 服务端 → 进入者个人：房间全量状态 */
 export interface RoomHello {
   roomId: string;
-  roomType: "office" | "house" | "shop" | "tower";
+  roomType: "office" | "house" | "shop" | "tower" | "konbini";
   spawn: { x: number; z: number; rotY: number };
   /** 同房间其他玩家（房间坐标） */
   players: PlayerInfo[];

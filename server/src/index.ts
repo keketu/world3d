@@ -155,6 +155,26 @@ if (![...world.objects.values()].some((o) => o.kind === "office")) {
   }
 }
 
+// 便利店地标（boot 对账，照办公楼模式）：广场北侧，出生第一眼可见，可进门
+const KONBINI_ROOM_PREFIX = "konbini-";
+{
+  const konbiniPos = spawnLocal(0, -16); // 出生点正对面（ plaza 北缘）
+  const KONBINI_ROTY = Math.atan2(SPAWN.x - konbiniPos.x, SPAWN.z - konbiniPos.z);
+  const existing = [...world.objects.values()].find((o) => o.kind === "konbini");
+  if (!existing) {
+    const row = world.addObject(
+      { kind: "konbini", variant: "小世界便利店", x: konbiniPos.x, z: konbiniPos.z, rotY: KONBINI_ROTY, scale: 1, creatorId: "system", creatorName: "小世界", createdAt: Date.now(), params: { name: "コンビニ便利店" } },
+      { name: "コンビニ便利店" }
+    );
+    db.insertObject(row);
+  } else if (Math.hypot(existing.x - konbiniPos.x, existing.z - konbiniPos.z) > 6) {
+    existing.x = konbiniPos.x;
+    existing.z = konbiniPos.z;
+    existing.rotY = KONBINI_ROTY;
+    db.updateObjectPos(existing.id, existing.x, existing.z, existing.rotY);
+  }
+}
+
 const toSocket = (socketId: string, event: string, payload: unknown) => {
   io.to(socketId).emit(event, payload);
 };
@@ -656,6 +676,7 @@ io.on("connection", (socket: Socket) => {
       const x = Number(payload?.x);
       const z = Number(payload?.z);
       if (kind === "office") return ack?.({ ok: false, reason: "办公楼是系统建筑，不能手搓哦" });
+    if (kind === "konbini") return ack?.({ ok: false, reason: "便利店是系统建筑，不能手搓哦" });
       if (!PROP_KINDS[kind] || Number.isNaN(x) || Number.isNaN(z)) return ack?.({ ok: false, reason: "参数无效" });
       const v = world.validatePlacement(kind, x, z);
       if (!v.ok) return ack?.({ ok: false, reason: v.reason });
