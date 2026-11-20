@@ -156,6 +156,46 @@ export function generate(
         summary: `一座${plan.variant ?? "小木屋"}（${plan.w ?? 5}×${plan.d ?? 5}，带门窗）`,
       };
     }
+    case "tower": {
+      const spot = findNearbySpot(world, Math.round(px) + 6, Math.round(pz) + 6, "tower");
+      if (!spot) return null;
+      ops.push({
+        kind: "tower",
+        variant: plan.variant ?? "蓝玻璃",
+        x: spot.x,
+        z: spot.z,
+        rotY: -rotY,
+        params: { w: plan.w ?? 8, d: plan.d ?? 8, f: plan.floors ?? 6 },
+      });
+      return {
+        ops,
+        kind: "tower",
+        variant: plan.variant ?? "蓝玻璃",
+        cx: spot.x,
+        cz: spot.z,
+        summary: `一栋${plan.variant ?? "蓝玻璃"}写字楼（${plan.w ?? 8}×${plan.d ?? 8}，${plan.floors ?? 6} 层）`,
+      };
+    }
+    case "shop": {
+      const spot = findNearbySpot(world, Math.round(px) + 5, Math.round(pz) + 5, "shop");
+      if (!spot) return null;
+      ops.push({
+        kind: "shop",
+        variant: plan.variant ?? "咖啡橙",
+        x: spot.x,
+        z: spot.z,
+        rotY: -rotY,
+        params: { w: plan.w ?? 6, d: plan.d ?? 6 },
+      });
+      return {
+        ops,
+        kind: "shop",
+        variant: plan.variant ?? "咖啡橙",
+        cx: spot.x,
+        cz: spot.z,
+        summary: `一间${plan.variant ?? "咖啡橙"}商铺（${plan.w ?? 6}×${plan.d ?? 6}，带雨棚和招牌）`,
+      };
+    }
     case "path": {
       const len = plan.len ?? 8;
       const variant = plan.variant ?? "石板路";

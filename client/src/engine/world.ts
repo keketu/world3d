@@ -1,5 +1,5 @@
 // 客户端世界状态：高度图（含 mods）+ 道具索引 + 碰撞
-import { heightAt as baseHeightAt, WORLD_SEED, WATER_LEVEL, WorldMeta, WorldObject, TerrainMod, PlayerInfo, isPropCollidable } from "@world3d/shared";
+import { heightAt as baseHeightAt, WORLD_SEED, WATER_LEVEL, WorldMeta, WorldObject, TerrainMod, PlayerInfo, isPropCollidable, isBuildingKind } from "@world3d/shared";
 import { requestPlace, requestRemove } from "../net/socket";
 
 interface RemoteAvatar {
@@ -50,13 +50,19 @@ class ClientWorld {
   /** 宅基地基座高度缓存（原始地形下的脚印最低点），mods 变化时清空 */
   private siteCache = new Map<string, number>();
 
-  /** 建筑半脚印尺寸（house 用 params.w/d，office 固定 8×6） */
+  /** 建筑半脚印尺寸（house/tower/shop 用 params.w/d，office 固定 8×6） */
   private siteHalf(o: WorldObject): { hx: number; hz: number } {
     const s = o.scale || 1;
-    if (o.kind === "house") {
+    const dims: Record<string, { lo: number; hi: number; def: number }> = {
+      house: { lo: 3, hi: 11, def: 5 },
+      tower: { lo: 6, hi: 10, def: 7 },
+      shop: { lo: 5, hi: 8, def: 6 },
+    };
+    const t = dims[o.kind];
+    if (t) {
       return {
-        hx: (Math.min(11, Math.max(3, Number(o.params?.w ?? 5))) / 2) * s,
-        hz: (Math.min(11, Math.max(3, Number(o.params?.d ?? 5))) / 2) * s,
+        hx: (Math.min(t.hi, Math.max(t.lo, Number(o.params?.w ?? t.def))) / 2) * s,
+        hz: (Math.min(t.hi, Math.max(t.lo, Number(o.params?.d ?? t.def))) / 2) * s,
       };
     }
     return { hx: 4.1 * s, hz: 3.1 * s }; // 办公楼主体 8×6
@@ -85,7 +91,7 @@ class ClientWorld {
   heightAt(x: number, z: number): number {
     let h = this.heightRaw(x, z);
     for (const o of this.objects.values()) {
-      if (o.kind !== "house" && o.kind !== "office") continue;
+      if (!isBuildingKind(o.kind)) continue;
       // 粗筛：离建筑中心太远的直接跳过（脚印+过渡带的最大外接半径）
       const { hx, hz } = this.siteHalf(o);
       const reach = Math.hypot(hx, hz) + 2.6;

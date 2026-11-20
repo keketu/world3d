@@ -1,6 +1,6 @@
 // 游戏引擎：低模世界渲染循环、本地玩家、道具交互、标签系统、远端玩家
 import * as THREE from "three";
-import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject } from "@world3d/shared";
+import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, isBuildingKind, propIcon } from "@world3d/shared";
 import { clientWorld } from "./world";
 import { buildTerrain } from "./terrain";
 import { buildProp } from "./props";
@@ -81,7 +81,7 @@ export function startGame(container: HTMLElement): GameHandle {
     // 平原世界：全域陆地，不再渲染海平面（pond 池塘有独立水盘道具）
     // 地形（含宅基地整平）变化后：建筑重新落座 + 相机避让盒刷新
     for (const [id, pm] of propMeshes) {
-      if (pm.kind !== "house" && pm.kind !== "office") continue;
+      if (!isBuildingKind(pm.kind)) continue;
       const o = clientWorld.objects.get(id);
       if (!o) continue;
       const y = clientWorld.siteLevelOf(o);
@@ -113,7 +113,7 @@ export function startGame(container: HTMLElement): GameHandle {
   function spawnProp(o: WorldObject, animate: boolean) {
     const { mesh, labelY } = buildProp(o);
     // 建筑：坐在宅基地基座高度（脚印内地形会被整平到同一高度）；其余道具贴中心点地面
-    const y = o.kind === "house" || o.kind === "office" ? clientWorld.siteLevelOf(o) : clientWorld.heightAt(o.x, o.z);
+    const y = isBuildingKind(o.kind) ? clientWorld.siteLevelOf(o) : clientWorld.heightAt(o.x, o.z);
     mesh.position.set(o.x, y, o.z);
     mesh.rotation.y = o.rotY;
     mesh.scale.setScalar(animate ? 0.01 : o.scale || 1);
@@ -121,7 +121,7 @@ export function startGame(container: HTMLElement): GameHandle {
     mesh.userData.objectId = o.id; // 射线命中道具后由此取 id（拆除/走近大建筑都靠它）
     propMeshes.set(o.id, { mesh, labelY, seatY: y, creator: o.creatorName, variant: o.variant, kind: o.kind });
     if (animate) popAnims.set(o.id, 0);
-    if ((o.kind === "house" || o.kind === "office") && !animate) rebuildCamBox(o.id, mesh);
+    if (isBuildingKind(o.kind) && !animate) rebuildCamBox(o.id, mesh);
     // 办公楼：计算门口世界坐标（进门触发点）
     if (o.kind === "office") {
       const doorDist = Number(o.params?.doorDist ?? 4.6);
@@ -132,11 +132,11 @@ export function startGame(container: HTMLElement): GameHandle {
   clientWorld.onObjectAdded = (o, animate) => {
     spawnProp(o, animate);
     // 建筑（宅基地）增删会改变地表形状：重建地形网格使整平生效
-    if (o.kind === "house" || o.kind === "office") rebuildTerrain();
+    if (isBuildingKind(o.kind)) rebuildTerrain();
   };
   clientWorld.onObjectRemoved = (id) => {
     const pm = propMeshes.get(id);
-    const wasBuilding = pm?.kind === "house" || pm?.kind === "office";
+    const wasBuilding = pm ? isBuildingKind(pm.kind) : false;
     if (pm) {
       propGroup.remove(pm.mesh);
       propMeshes.delete(id);
@@ -861,7 +861,7 @@ export function startGame(container: HTMLElement): GameHandle {
       if (t >= 1) {
         pm.mesh.scale.setScalar(1);
         popAnims.delete(id);
-        if (pm.kind === "house" || pm.kind === "office") rebuildCamBox(id, pm.mesh); // 弹出动画结束才有真实尺寸
+        if (isBuildingKind(pm.kind)) rebuildCamBox(id, pm.mesh); // 弹出动画结束才有真实尺寸
       } else {
         const s = 1 - Math.pow(1 - t, 3);
         pm.mesh.scale.setScalar(s);
@@ -1006,7 +1006,7 @@ export function startGame(container: HTMLElement): GameHandle {
       for (const [objId, pm] of propMeshes) {
         if (pm.kind === "path") continue;
         const o = clientWorld.objects.get(objId);
-        const icon = pm.kind === "tree" ? "🌳" : pm.kind === "flower" ? "🌼" : pm.kind === "house" ? "🏠" : pm.kind === "pond" ? "💧" : "🪵";
+        const icon = propIcon(pm.kind);
         setLabel(
           `obj-${objId}`,
           `<span class="objLabel">${icon} ${o?.variant ?? pm.variant} · ${pm.creator}</span>`,

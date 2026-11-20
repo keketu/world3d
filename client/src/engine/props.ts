@@ -211,6 +211,81 @@ function buildOfficeBuilding(g: THREE.Group) {
   g.add(box(1.7, 0.16, 0.05, "#fdf9f7", 0.35, 3.15, 3.29));
 }
 
+/** 写字楼（阳光都市）：裙房 + 分层窗带 + 屋顶天线，门朝 +z */
+function buildTower(variant: string, params: Record<string, unknown>, g: THREE.Group) {
+  const w = Math.min(10, Math.max(6, Number(params?.w ?? 7)));
+  const d = Math.min(10, Math.max(6, Number(params?.d ?? 7)));
+  const floors = Math.min(12, Math.max(4, Number(params?.f ?? 6)));
+  const FH = 3; // 每层高
+  // 配色：主体 / 窗带玻璃 / 裙房 / 屋顶饰
+  const P =
+    variant === "暖白"
+      ? { body: "#f4ede0", glass: "#8fb6c9", podium: "#e8dfcd", trim: "#e2907e" }
+      : variant === "陶土红"
+        ? { body: "#c67a5f", glass: "#d8e4ea", podium: "#e6cdb4", trim: "#f2e3cd" }
+        : { body: "#eef1ea", glass: "#4d7fa8", podium: "#dfe4de", trim: "#f2f1ec" };
+
+  const podiumH = 2.8;
+  // 裙房（大半圈玻璃廊）
+  g.add(box(w + 1.6, podiumH, d + 1.6, P.podium, 0, podiumH / 2, 0));
+  g.add(box(w + 1.7, 1.3, d + 1.7, P.glass, 0, 1.05, 0)); // 裙房玻璃带
+  // 塔身
+  const bodyH = floors * FH;
+  const bodyY0 = podiumH;
+  g.add(box(w, bodyH, d, P.body, 0, bodyY0 + bodyH / 2, 0));
+  // 每层窗带（环绕式薄盒，微微出挑）
+  for (let i = 0; i < floors; i++) {
+    g.add(box(w + 0.14, 1.5, d + 0.14, P.glass, 0, bodyY0 + i * FH + FH * 0.62, 0));
+  }
+  // 屋顶：女儿墙 + 空调机组 + 天线
+  const top = bodyY0 + bodyH;
+  g.add(box(w + 0.4, 0.5, d + 0.4, P.trim, 0, top + 0.25, 0));
+  g.add(box(w * 0.3, 0.6, d * 0.3, "#c9c4ba", -w * 0.2, top + 0.7, -d * 0.15));
+  g.add(box(w * 0.22, 0.5, d * 0.24, "#b5afa4", w * 0.22, top + 0.65, d * 0.18));
+  g.add(cyl(0.08, 0.08, 2.4, "#9aa2a8", -w * 0.28, top + 1.7, d * 0.2));
+  g.add(sphere(0.16, "#e2907e", -w * 0.28, top + 3.0, d * 0.2));
+  // 入口（局部 +z 面）：玻璃门 + 雨棚 + 门垫
+  g.add(box(2.2, 2.3, 0.14, P.glass, 0, 1.35, (d + 1.6) / 2 + 0.02));
+  g.add(box(0.14, 2.3, 0.16, P.podium, -1.15, 1.35, (d + 1.6) / 2 + 0.02));
+  g.add(box(0.14, 2.3, 0.16, P.podium, 1.15, 1.35, (d + 1.6) / 2 + 0.02));
+  g.add(box(3.0, 0.18, 1.5, P.trim, 0, podiumH + 0.5, (d + 1.6) / 2 + 0.75));
+  g.add(box(2.4, 0.05, 1.3, "#c65f76", 0, 0.03, (d + 1.6) / 2 + 1.6));
+}
+
+/** 商铺（阳光都市）：两层彩色小楼 + 橱窗 + 条纹雨棚 + 屋顶招牌，门朝 +z */
+function buildShop(variant: string, params: Record<string, unknown>, g: THREE.Group) {
+  const w = Math.min(8, Math.max(5, Number(params?.w ?? 6)));
+  const d = Math.min(8, Math.max(5, Number(params?.d ?? 6)));
+  const P =
+    variant === "薄荷绿"
+      ? { body: "#9ec9b4", trim: "#2f5d4d", awnA: "#f4f0e6", awnB: "#9ec9b4", sign: "#2f5d4d" }
+      : variant === "奶油黄"
+        ? { body: "#ecd28f", trim: "#b56576", awnA: "#f6ecd4", awnB: "#ecd28f", sign: "#a8543f" }
+        : { body: "#d98e5f", trim: "#5a4632", awnA: "#f2e3cd", awnB: "#d98e5f", sign: "#5a4632" };
+  const H = 4.6; // 两层
+  // 主体
+  g.add(box(w, H, d, P.body, 0, H / 2, 0));
+  g.add(box(w + 0.3, 0.35, d + 0.3, P.trim, 0, H + 0.15, 0)); // 屋檐板
+  // 一层橱窗 + 门（+z 面）
+  g.add(box(w - 1.6, 1.9, 0.12, "#bcd8f5", -w / 2 + (w - 0.4) / 2 + 0.5, 1.15, d / 2 + 0.05));
+  g.add(box(0.95, 2.2, 0.14, "#8a6a48", 0, 1.1, d / 2 + 0.05));
+  // 二层窗 ×2
+  g.add(box(1.3, 1.0, 0.1, "#bcd8f5", -w / 4, 3.3, d / 2 + 0.04));
+  g.add(box(1.3, 1.0, 0.1, "#bcd8f5", w / 4, 3.3, d / 2 + 0.04));
+  // 条纹雨棚（一排交替色小盒，微微出挑）
+  const segs = Math.max(4, Math.round(w / 0.9));
+  const segW = (w - 0.8) / segs;
+  for (let i = 0; i < segs; i++) {
+    g.add(box(segW, 0.14, 1.1, i % 2 === 0 ? P.awnA : P.awnB, -w / 2 + 0.4 + segW * (i + 0.5), 2.75, d / 2 + 0.5));
+  }
+  // 屋顶招牌板 + 圆点 logo
+  g.add(box(w * 0.72, 1.05, 0.18, P.sign, 0, H + 0.9, d / 2 - 0.1));
+  g.add(sphere(0.2, "#fdf9f7", -w * 0.2, H + 0.95, d / 2));
+  // 侧窗（x 两侧各一）
+  g.add(box(0.1, 1.2, 1.6, "#bcd8f5", w / 2 + 0.04, 1.3, 0));
+  g.add(box(0.1, 1.2, 1.6, "#bcd8f5", -w / 2 - 0.04, 1.3, 0));
+}
+
 export interface PropMeshResult {
   mesh: THREE.Mesh;
   /** 标注浮签高度 */
@@ -240,6 +315,17 @@ export function buildProp(o: WorldObject): PropMeshResult {
     case "office":
       buildOfficeBuilding(g);
       labelY = 6.0;
+      break;
+    case "tower": {
+      const p = o.params ?? {};
+      buildTower(o.variant, p, g);
+      const floors = Math.min(12, Math.max(4, Number(p.f ?? 6)));
+      labelY = 2.8 + floors * 3 + 2;
+      break;
+    }
+    case "shop":
+      buildShop(o.variant, o.params ?? {}, g);
+      labelY = 6.8;
       break;
     case "fence":
       buildFence(o.params ?? {}, g);

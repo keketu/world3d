@@ -83,14 +83,44 @@ export const PROP_KINDS: Record<string, PropKindDef> = {
     icon: "🏢",
     variants: [{ variant: "小世界科技", label: "小世界科技办公楼", icon: "🏢" }],
   },
+  tower: {
+    kind: "tower",
+    label: "写字楼",
+    collideR: 4.4,
+    icon: "🏢",
+    variants: [
+      { variant: "蓝玻璃", label: "蓝玻璃写字楼", icon: "🏢" },
+      { variant: "暖白", label: "暖白写字楼", icon: "🏢" },
+      { variant: "陶土红", label: "陶土红写字楼", icon: "🏢" },
+    ],
+  },
+  shop: {
+    kind: "shop",
+    label: "商铺",
+    collideR: 3.2,
+    icon: "🏬",
+    variants: [
+      { variant: "咖啡橙", label: "咖啡橙商铺", icon: "🏬" },
+      { variant: "薄荷绿", label: "薄荷绿商铺", icon: "🏬" },
+      { variant: "奶油黄", label: "奶油黄商铺", icon: "🏬" },
+    ],
+  },
 };
+
+/** 大型建筑 kind（享受宅基地整平 / 相机避让 / 落座逻辑） */
+export const BUILDING_KINDS = new Set(["house", "office", "tower", "shop"]);
+
+export function isBuildingKind(kind: string): boolean {
+  return BUILDING_KINDS.has(kind);
+}
 
 /** 手搓 hotbar：首位「空手」= 点击行走模式，其后为可放道具 */
 export const HOTBAR_PROPS: Array<{ kind: string; variant: string; label: string; icon: string }> = [
   { kind: "hand", variant: "", label: "空手行走", icon: "✋" },
   { kind: "tree", variant: "樱花", label: "樱花树", icon: "🌸" },
-  { kind: "tree", variant: "松", label: "松树", icon: "🌲" },
+  { kind: "tower", variant: "蓝玻璃", label: "写字楼", icon: "🏢" },
   { kind: "flower", variant: "粉", label: "粉花丛", icon: "🌸" },
+  { kind: "shop", variant: "咖啡橙", label: "商铺", icon: "🏬" },
   { kind: "flower", variant: "黄", label: "黄花丛", icon: "🌻" },
   { kind: "fence", variant: "木", label: "木围栏", icon: "🪵" },
   { kind: "path", variant: "石板路", label: "石板路", icon: "🪨" },

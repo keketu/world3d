@@ -15,6 +15,10 @@ import {
   RoomHello,
   WorldObject,
   PROP_KINDS,
+  cityLots,
+  PARK_IDS,
+  mulberry32,
+  WORLD_SEED,
 } from "@world3d/shared";
 import { World } from "./engine/world.js";
 import { Db } from "./db.js";
@@ -196,6 +200,69 @@ builder.attach(io);
       {}
     );
     db.insertObject(row);
+  }
+}
+
+// 城市街区对账（boot）：写字楼/商铺/公园绿化的确定性布局 —— system 城建造物漂移删除、缺失补种；用户造物永不动
+{
+  const SYS_CITY = "system-city";
+  const lots = cityLots();
+
+  // 清场：system 城建的建筑漂出期望 lot（>6m）或已成多余的一律移除
+  for (const o of [...world.objects.values()]) {
+    if (o.creatorId !== SYS_CITY || (o.kind !== "tower" && o.kind !== "shop")) continue;
+    const lot = lots.find((l) => l.kind === o.kind && Math.hypot(l.x - o.x, l.z - o.z) < 6);
+    if (!lot) {
+      world.objects.delete(o.id);
+      db.deleteObject(o.id);
+    }
+  }
+
+  // 补种缺失的建筑（放置前校验：用户造物占位的 lot 自动跳过）
+  for (const lot of lots) {
+    const exists = [...world.objects.values()].some(
+      (o) => o.creatorId === SYS_CITY && Math.hypot(o.x - lot.x, o.z - lot.z) < 1.5
+    );
+    if (exists) continue;
+    if (!world.validatePlacement(lot.kind, lot.x, lot.z).ok) continue;
+    const params = lot.kind === "tower" ? { w: 8, d: 8, f: lot.floors } : { w: 6, d: 6 };
+    const row = world.addObject(
+      { kind: lot.kind, variant: lot.variant, x: lot.x, z: lot.z, rotY: lot.rotY, scale: 1, creatorId: SYS_CITY, creatorName: "小世界城建", createdAt: Date.now(), params },
+      params
+    );
+    db.insertObject(row);
+  }
+
+  // 公园/绿带补绿化：树 + 花丛（确定性散点，碰撞校验失败的点位跳过）
+  const greenRng = mulberry32(WORLD_SEED ^ 0x7061726b); // "park"
+  const LINES = [32, 96, 160, 224];
+  const bounds = [0, ...LINES, 256];
+  const zones: Array<{ x0: number; z0: number; x1: number; z1: number }> = [];
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 5; j++) {
+      if (i === 0 || i === 4 || j === 0 || j === 4 || PARK_IDS.has(`${i}-${j}`)) {
+        zones.push({ x0: bounds[i] + 4, z0: bounds[j] + 4, x1: bounds[i + 1] - 4, z1: bounds[j + 1] - 4 });
+      }
+    }
+  }
+  for (const zone of zones) {
+    const w = zone.x1 - zone.x0;
+    const h = zone.z1 - zone.z0;
+    const n = Math.min(14, Math.max(5, Math.round((w * h) / 90)));
+    for (let k = 0; k < n; k++) {
+      const x = Math.round(zone.x0 + greenRng() * w);
+      const zz = Math.round(zone.z0 + greenRng() * h);
+      const kind = greenRng() > 0.25 ? "tree" : "flower";
+      const variant = kind === "tree" ? (greenRng() > 0.5 ? "松" : "白桦") : greenRng() > 0.5 ? "白" : "黄";
+      const exists = [...world.objects.values()].some((o) => o.creatorId === "system" && Math.hypot(o.x - x, o.z - zz) < 1.2);
+      if (exists) continue;
+      if (!world.validatePlacement(kind, x, zz).ok) continue;
+      const row = world.addObject(
+        { kind, variant, x, z: zz, rotY: greenRng() * Math.PI * 2, scale: kind === "tree" ? 1.1 : 1, creatorId: "system", creatorName: "小世界城建", createdAt: Date.now(), params: {} },
+        {}
+      );
+      db.insertObject(row);
+    }
   }
 }
 

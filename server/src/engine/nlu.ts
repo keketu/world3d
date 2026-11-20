@@ -1,14 +1,16 @@
 // 中文自然语言 → 建造计划（模板 NLU，预留 LLM 替换接口）
 
-export type BuildAction = "tree" | "flower" | "house" | "path" | "fence" | "pond" | "clear" | "help";
+export type BuildAction = "tree" | "flower" | "house" | "tower" | "shop" | "path" | "fence" | "pond" | "clear" | "help";
 
 export interface BuildPlan {
   action: BuildAction;
-  /** 树/花的种类 */
+  /** 树/花/建筑的种类 */
   variant?: string;
   count?: number;
   w?: number;
   d?: number;
+  /** 楼层数（tower） */
+  floors?: number;
   len?: number;
   radius?: number;
   layout?: "line" | "circle" | "scatter";
@@ -63,8 +65,34 @@ export function parseBrief(brief: string): BuildPlan {
     };
   }
 
+  // 盖写字楼（在盖房之前匹配，避免「楼」落进小屋分支）
+  if (/盖|建|修|造/.test(s) && /楼|大厦|写字楼|高层/.test(s)) {
+    const sizeM = s.match(/(\d+)\s*[x×*]\s*(\d+)/);
+    const fM = s.match(/(\d+)\s*层/);
+    const variant = /陶土|红/.test(s) ? "陶土红" : /暖白|白/.test(s) ? "暖白" : "蓝玻璃";
+    return {
+      action: "tower",
+      variant,
+      w: sizeM ? Math.min(10, Math.max(6, parseInt(sizeM[1]))) : 8,
+      d: sizeM ? Math.min(10, Math.max(6, parseInt(sizeM[2]))) : 8,
+      floors: fM ? Math.min(12, Math.max(4, parseInt(fM[1]))) : 6,
+    };
+  }
+
+  // 开商铺
+  if (/开|盖|建|修|造/.test(s) && /店|商铺|门面|便利店/.test(s)) {
+    const sizeM = s.match(/(\d+)\s*[x×*]\s*(\d+)/);
+    const variant = /薄荷|绿/.test(s) ? "薄荷绿" : /奶油|黄/.test(s) ? "奶油黄" : "咖啡橙";
+    return {
+      action: "shop",
+      variant,
+      w: sizeM ? Math.min(8, Math.max(5, parseInt(sizeM[1]))) : 6,
+      d: sizeM ? Math.min(8, Math.max(5, parseInt(sizeM[2]))) : 6,
+    };
+  }
+
   // 盖房
-  if (/盖|建|修|造/.test(s) && /房|屋|楼|小屋/.test(s)) {
+  if (/盖|建|修|造/.test(s) && /房|屋|小屋/.test(s)) {
     const sizeM = s.match(/(\d+)\s*[x×*]\s*(\d+)/);
     const variant = /石/.test(s) ? "石屋" : "小木屋";
     return {
@@ -107,6 +135,8 @@ export function buildHelpText(): string {
     "· 「在我附近种3棵樱花树」「种一圈松树」",
     "· 「种一个粉色花坛」「种5朵红花」",
     "· 「盖一座小木屋」「盖一个7x6石屋」",
+    "· 「盖一栋蓝玻璃写字楼」「造一栋10层大楼」",
+    "· 「开一家咖啡橙商铺」「开个薄荷绿便利店」",
     "· 「铺一条12格石板路」「修一圈围栏」",
     "· 「挖一个半径4的池塘」「清空这里附近5格」",
   ].join("\n");

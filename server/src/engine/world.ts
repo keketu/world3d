@@ -8,6 +8,7 @@ import {
   WorldObject,
   TerrainMod,
   PROP_KINDS,
+  isBuildingKind,
 } from "@world3d/shared";
 
 export interface TerrainModRow extends TerrainMod {
@@ -30,6 +31,9 @@ const FOOTPRINT: Record<string, number> = {
   fence: 4.5,
   path: 1.2,
   pond: 0,
+  office: 5.0,
+  tower: 5.2,
+  shop: 3.8,
 };
 
 export class World {
@@ -131,13 +135,13 @@ export class World {
 
   findSpawn(): { x: number; y: number; z: number } {
     // 平原世界（无海岸）：从中环带向外找开阔出生点 —— 脚下是陆、四周 6m 无大型建筑
-    // 只看大型建筑（house/office）的占位，忽略树花等小件 —— 否则上一靴的迎宾树会把出生点越推越歪
+    // 只看大型建筑的占位，忽略树花等小件 —— 否则上一靴的迎宾树会把出生点越推越歪
     const c = this.size / 2;
     const OLX = -16;
     const OLZ = -14;
     const nearStructure = (sx: number, sz: number) => {
       for (const o of this.objects.values()) {
-        if (o.kind !== "house" && o.kind !== "office") continue;
+        if (!isBuildingKind(o.kind)) continue;
         if (Math.hypot(o.x - sx, o.z - sz) < (FOOTPRINT[o.kind] ?? 1) + 1.4) return true;
       }
       return false;

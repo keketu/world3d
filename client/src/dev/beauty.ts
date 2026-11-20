@@ -1,7 +1,7 @@
 // 唯美化预览 harness：脱离 socket 服务端直接渲染新场景（仅 dev 用，不进 dist）
 import * as THREE from "three";
 import { WATER_LEVEL, TerrainMod } from "@world3d/shared";
-import { buildTerrain, buildWater } from "../engine/terrain";
+import { buildTerrain } from "../engine/terrain";
 import { buildProp } from "../engine/props";
 import { clientWorld } from "../engine/world";
 
@@ -38,7 +38,6 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.28));
 const pond: TerrainMod = { id: "demo-pond", type: "pond", x: 60, z: 60, r: 7, depth: 3, by: "demo" };
 clientWorld.mods.set(pond.id, pond);
 scene.add(buildTerrain(size));
-scene.add(buildWater(size, WATER_LEVEL));
 
 const demos: Array<[string, string, number, number]> = [
   ["tree", "樱花", 52, 78],
