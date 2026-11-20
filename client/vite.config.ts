@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
@@ -10,6 +11,14 @@ export default defineConfig({
       "/socket.io": {
         target: "http://localhost:8788",
         ws: true,
+      },
+    },
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        konbini: resolve(__dirname, "konbini.html"),
       },
     },
   },
