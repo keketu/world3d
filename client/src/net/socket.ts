@@ -113,6 +113,22 @@ function registerHandlers(s: Socket) {
     useWorld.getState().pushToast(reason || "账号已被封禁");
   });
 
+  // 土地申请被审批 → toast（在线即时通知；离线错过可去 🗺 土地 面板看记录）
+  s.on("land:decided", (p: { ok: boolean; plotId: string; reason?: string }) => {
+    useWorld.getState().pushToast(p.ok ? `✅ 土地申请通过：${p.plotId} 现在是你的了` : `❌ 土地申请被拒绝：${p.plotId}${p.reason ? `（${p.reason}）` : ""}`);
+  });
+  s.on("land:apply", (p: { ok: boolean; plotId: string; applicantName: string }) => {
+    useWorld.getState().pushToast(`📩 ${p.applicantName} 申请了地块 ${p.plotId}——去 🗺 土地 面板审批`);
+  });
+  s.on("land:governor", (p: { ok: boolean; state: string }) => {
+    useWorld.getState().pushToast(`👑 你被任命为 ${p.state} 州州长`);
+  });
+
+  // 所在建筑被拆除 → 服务端强制请出，回到门口户外位置
+  s.on("room:kicked", (res: { ok: boolean; outdoor?: { x: number; y: number; z: number; rotY: number } }) => {
+    if (res?.ok && res.outdoor && roomHost.active) roomHost.exitTo(res.outdoor);
+  });
+
   s.on("object:added", (o: WorldObject) => {
     useWorld.getState().addObject(o);
   });
@@ -183,8 +199,8 @@ function registerHandlers(s: Socket) {
   return socket;
 }
 
-export function sendRoomJoin() {
-  socket?.emit("room:join", {}, (h: RoomHello | { ok: false; reason: string }) => {
+export function sendRoomJoin(roomId?: string) {
+  socket?.emit("room:join", { roomId }, (h: RoomHello | { ok: false; reason: string }) => {
     if (h && typeof h === "object" && "ok" in h && (h as { ok: false }).ok === false) {
       useWorld.getState().pushToast((h as { reason: string }).reason);
       return;

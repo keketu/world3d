@@ -114,6 +114,21 @@ export function isBuildingKind(kind: string): boolean {
   return BUILDING_KINDS.has(kind);
 }
 
+/** 建筑外壳尺寸 clamp 表：[下限, 上限, 默认值]（两端共用：放置/落座/室内生成/门口计算） */
+export const BUILDING_DIMS: Record<string, { w: [number, number, number]; d: [number, number, number]; f: [number, number, number] }> = {
+  house: { w: [3, 11, 5], d: [3, 11, 5], f: [4, 12, 6] },
+  tower: { w: [6, 10, 8], d: [6, 10, 8], f: [4, 12, 6] },
+  shop: { w: [5, 8, 6], d: [5, 8, 6], f: [4, 12, 6] },
+  office: { w: [8, 8, 8], d: [6, 6, 6], f: [2, 2, 2] },
+};
+
+/** 读取建筑的实际外壳尺寸（params 按 clamp 表收敛） */
+export function buildingSize(kind: string, params?: Record<string, unknown>): { w: number; d: number; f: number } {
+  const t = BUILDING_DIMS[kind] ?? BUILDING_DIMS.house;
+  const cl = (v: unknown, r: [number, number, number]) => Math.min(r[1], Math.max(r[0], Number(v ?? r[2])));
+  return { w: cl(params?.w, t.w), d: cl(params?.d, t.d), f: cl(params?.f, t.f) };
+}
+
 /** 手搓 hotbar：首位「空手」= 点击行走模式，其后为可放道具 */
 export const HOTBAR_PROPS: Array<{ kind: string; variant: string; label: string; icon: string }> = [
   { kind: "hand", variant: "", label: "空手行走", icon: "✋" },

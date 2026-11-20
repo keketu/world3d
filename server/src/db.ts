@@ -126,6 +126,35 @@ export class Db {
         x REAL, y REAL, z REAL, rotY REAL,
         updatedAt INTEGER
       );
+      CREATE TABLE IF NOT EXISTS land_plots (
+        plotId TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        ownerId TEXT NOT NULL,
+        ownerName TEXT,
+        grantedAt INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS land_apps (
+        id TEXT PRIMARY KEY,
+        plotId TEXT NOT NULL,
+        state TEXT NOT NULL,
+        applicantId TEXT NOT NULL,
+        applicantName TEXT,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        reviewerId TEXT,
+        reviewerName TEXT,
+        reviewedAt INTEGER,
+        createdAt INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS governors (
+        state TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        userName TEXT,
+        appointedBy TEXT,
+        appointedAt INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_land_apps_status ON land_apps(status);
+      CREATE INDEX IF NOT EXISTS idx_land_apps_applicant ON land_apps(applicantId);
       CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_log(ts);
       CREATE INDEX IF NOT EXISTS idx_chat_from ON chat_log(fromId);
       CREATE INDEX IF NOT EXISTS idx_users_created ON users(createdAt);
@@ -501,6 +530,71 @@ export class Db {
       .run(userId, x, y, z, rotY, Date.now());
   }
 
+  // ---------- 土地（九州地块归属 / 申请 / 州长） ----------
+
+  getPlot(plotId: string): { plotId: string; state: string; ownerId: string; ownerName: string; grantedAt: number } | null {
+    return (this.db.prepare(`SELECT * FROM land_plots WHERE plotId = ?`).get(plotId) as never) ?? null;
+  }
+
+  setPlotOwner(plotId: string, state: string, ownerId: string, ownerName: string) {
+    this.db
+      .prepare(
+        `INSERT INTO land_plots (plotId,state,ownerId,ownerName,grantedAt) VALUES (?,?,?,?,?)
+         ON CONFLICT(plotId) DO UPDATE SET state=excluded.state,ownerId=excluded.ownerId,ownerName=excluded.ownerName,grantedAt=excluded.grantedAt`
+      )
+      .run(plotId, state, ownerId, ownerName, Date.now());
+  }
+
+  clearPlot(plotId: string) {
+    this.db.prepare(`DELETE FROM land_plots WHERE plotId = ?`).run(plotId);
+  }
+
+  listPlots(): Array<{ plotId: string; state: string; ownerId: string; ownerName: string; grantedAt: number }> {
+    return this.db.prepare(`SELECT * FROM land_plots ORDER BY grantedAt DESC`).all() as never;
+  }
+
+  createLandApp(id: string, plotId: string, state: string, applicantId: string, applicantName: string, reason: string) {
+    this.db
+      .prepare(
+        `INSERT INTO land_apps (id,plotId,state,applicantId,applicantName,reason,status,createdAt) VALUES (?,?,?,?,?,?, 'pending', ?)`
+      )
+      .run(id, plotId, state, applicantId, applicantName, reason, Date.now());
+  }
+
+  getLandApp(id: string): { id: string; plotId: string; state: string; applicantId: string; applicantName: string; reason: string; status: string; reviewerId: string | null; reviewerName: string | null; reviewedAt: number | null; createdAt: number } | null {
+    return (this.db.prepare(`SELECT * FROM land_apps WHERE id = ?`).get(id) as never) ?? null;
+  }
+
+  setLandAppStatus(id: string, status: "approved" | "rejected", reviewerId: string, reviewerName: string) {
+    this.db.prepare(`UPDATE land_apps SET status=?, reviewerId=?, reviewerName=?, reviewedAt=? WHERE id=?`).run(status, reviewerId, reviewerName, Date.now(), id);
+  }
+
+  listLandApps(status?: "pending" | "approved" | "rejected"): Array<ReturnType<Db["getLandApp"]> & object> {
+    if (status) return this.db.prepare(`SELECT * FROM land_apps WHERE status = ? ORDER BY createdAt DESC LIMIT 200`).all(status) as never;
+    return this.db.prepare(`SELECT * FROM land_apps ORDER BY createdAt DESC LIMIT 200`).all() as never;
+  }
+
+  getGovernor(state: string): { state: string; userId: string; userName: string; appointedBy: string; appointedAt: number } | null {
+    return (this.db.prepare(`SELECT * FROM governors WHERE state = ?`).get(state) as never) ?? null;
+  }
+
+  listGovernors(): Array<{ state: string; userId: string; userName: string; appointedBy: string; appointedAt: number }> {
+    return this.db.prepare(`SELECT * FROM governors ORDER BY state`).all() as never;
+  }
+
+  setGovernor(state: string, userId: string, userName: string, appointedBy: string) {
+    this.db
+      .prepare(
+        `INSERT INTO governors (state,userId,userName,appointedBy,appointedAt) VALUES (?,?,?,?,?)
+         ON CONFLICT(state) DO UPDATE SET userId=excluded.userId,userName=excluded.userName,appointedBy=excluded.appointedBy,appointedAt=excluded.appointedAt`
+      )
+      .run(state, userId, userName, appointedBy, Date.now());
+  }
+
+  removeGovernor(state: string) {
+    this.db.prepare(`DELETE FROM governors WHERE state = ?`).run(state);
+  }
+
   getPlayerPos(userId: string): { x: number; y: number; z: number; rotY: number } | null {
     const r = this.db.prepare(`SELECT x,y,z,rotY FROM player_pos WHERE userId=?`).get(userId) as
       | { x: number; y: number; z: number; rotY: number }
@@ -797,7 +891,7 @@ export class Db {
 
   /** 各表行数 */
   tableCounts(): Record<string, number> {
-    const tables = ["users", "objects", "chat_log", "office_projects", "office_tasks", "office_dialogues", "attest_roots", "object_proofs", "audit_log", "event_log"];
+    const tables = ["users", "objects", "chat_log", "office_projects", "office_tasks", "office_dialogues", "attest_roots", "object_proofs", "audit_log", "event_log", "land_plots", "land_apps", "governors"];
     const out: Record<string, number> = {};
     for (const t of tables) {
       try {

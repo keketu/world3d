@@ -6,6 +6,7 @@ import { ChatMessage } from "@world3d/shared";
 import { Hotbar } from "./ui/Hotbar";
 import { OfficePanel } from "./ui/OfficePanel";
 import SettingsPanel from "./ui/SettingsPanel";
+import LandPanel from "./ui/LandPanel";
 import { roomHost } from "./engine/roomHost";
 
 function Toaster() {
@@ -121,7 +122,7 @@ function ChatPanel({ onClose, isTouch }: { onClose?: () => void; isTouch?: boole
   );
 }
 
-function TopBar({ onSettings }: { onSettings: () => void }) {
+function TopBar({ onSettings, landOpen, onLand }: { onSettings: () => void; landOpen: boolean; onLand: () => void }) {
   const players = useWorld((s) => s.players);
   const connected = useWorld((s) => s.connected);
   const tier = useWorld((s) => s.tier);
@@ -231,6 +232,9 @@ function TopBar({ onSettings }: { onSettings: () => void }) {
           </button>
         </>
       )}
+      <button className={`toggleBtn ${landOpen ? "on" : ""}`} onClick={onLand} title="土地申请与我的地块">
+        🗺 土地
+      </button>
       <button className="toggleBtn" onClick={onSettings} title="设置">
         ⚙
       </button>
@@ -257,6 +261,8 @@ export default function App() {
   const viewMode = useWorld((s) => s.viewMode);
   const toggleView = useWorld((s) => s.toggleView);
   const inRoom = useWorld((s) => s.inRoom);
+  const roomId = useWorld((s) => s.roomId);
+  const inOffice = inRoom && (roomId ?? "").startsWith("office"); // 普通建筑房间不显示办公室专属 UI
   const roomPrompt = useWorld((s) => s.roomPrompt);
   const nearAgent = useWorld((s) => s.nearAgent);
   const nearOwnAgent = useWorld((s) => s.nearOwnAgent);
@@ -265,6 +271,7 @@ export default function App() {
   const isTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window || (typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: coarse)").matches)));
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [landOpen, setLandOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GameHandle | null>(null);
 
@@ -315,7 +322,7 @@ export default function App() {
       {!joined && <AuthCard onJoin={handleJoin} />}
       {joined && (
         <div className="ui">
-          <TopBar onSettings={() => setSettingsOpen(true)} />
+          <TopBar onSettings={() => setSettingsOpen(true)} landOpen={landOpen} onLand={() => setLandOpen(!landOpen)} />
           {(!isTouch || chatOpen) && <ChatPanel isTouch={isTouch} onClose={() => setChatOpen(false)} />}
           {isTouch && !chatOpen && <ChatTicker onOpen={() => setChatOpen(true)} />}
           {isTouch && !chatOpen && (
@@ -329,10 +336,10 @@ export default function App() {
             </button>
           )}
           <Hotbar />
-          <OfficePanel />
+          {inOffice && <OfficePanel />}
           {roomPrompt && (
             <button className="doorBtn" onClick={() => roomHost.doorAction()}>
-              {roomPrompt === "enter" ? "🚪 进入办公室（E）" : "🚪 离开办公室（E）"}
+              {roomPrompt.kind === "enter" ? `🚪 进入${roomPrompt.label}（E）` : `🚪 离开${roomPrompt.label}（E）`}
             </button>
           )}
           {possessAgent && (
@@ -352,11 +359,14 @@ export default function App() {
           )}
           <Toaster />
           {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+          {landOpen && <LandPanel onClose={() => setLandOpen(false)} />}
           <div className="hint">
             {inRoom
               ? possessAgent
                 ? `🎭 你是 ${possessAgent.name}：${controlMode === "keyboard" ? "WASD 行走" : "点击行走"} · 聊天框=以 TA 名义说话 · E 退出附身`
-                : `${controlMode === "keyboard" ? "WASD 移动" : "点击地面行走"} · 点 📋 派项目（E）· 🎭 附身自己的员工（E）· 走到门口离开`
+                : inOffice
+                  ? `${controlMode === "keyboard" ? "WASD 移动" : "点击地面行走"} · 点 📋 派项目（E）· 🎭 附身自己的员工（E）· 走到门口离开`
+                  : `${controlMode === "keyboard" ? "WASD 移动" : "点击地面行走"} · 走到门口离开（E）`
               : isTouch
                 ? "点击地面行走 · 选中道具后点地放置 · 长按拆除 · 单指拖动转视角 · 双指缩放"
                 : controlMode === "keyboard"

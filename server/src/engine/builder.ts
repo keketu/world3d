@@ -1,6 +1,6 @@
 // AI 建造调度：parse → generate → 分批放置（弹出动画）→ object 登记（溯源）→ 汇报
 import { randomUUID } from "node:crypto";
-import { AiDonePayload, AiProgressPayload, ChatMessage, WorldObject } from "@world3d/shared";
+import { AiDonePayload, AiProgressPayload, ChatMessage, WorldObject, plotIdAt } from "@world3d/shared";
 import { World, WorldObjectRow } from "./world.js";
 import { Db } from "../db.js";
 import { parseBrief, BuildPlan } from "./nlu.js";
@@ -40,6 +40,21 @@ export class Builder {
   }
 
   /** 收到一句话。返回 true = 已按建造指令处理（或给出帮助） */
+  /** 土地建造权限：九州地块须为本人土地（管理员/州长豁免），公共区放行 */
+  private canBuildBy(by: string, x: number, z: number): { ok: boolean; reason?: string } {
+    const plotId = plotIdAt(x, z);
+    if (!plotId) return { ok: true }; // 公共区（广场/公园/道路/绿带）
+    const plot = this.db.getPlot(plotId);
+    const userId = by.startsWith("u:") ? by.slice(2) : null;
+    const user = userId ? this.db.findUserById(userId) : null;
+    if (user && !user.banned && user.role === "admin") return { ok: true };
+    const gov = this.db.getGovernor(plotId.split("#")[0]);
+    if (gov?.userId === userId) return { ok: true };
+    if (!plot) return { ok: false, reason: `${plotId} 还没批给你——先在「🗺 土地」面板申请` };
+    if (plot.ownerId === by) return { ok: true };
+    return { ok: false, reason: `${plotId} 已被 ${plot.ownerName} 认领` };
+  }
+
   async tryBuild(
     brief: string,
     by: string,
@@ -58,6 +73,13 @@ export class Builder {
       return true;
     }
 
+    // 土地建造权限：九州地块须为本人土地（管理员/州长豁免），公共区放行
+    const centerCheck = this.canBuildBy(by, pos.x, pos.z);
+    if (!centerCheck.ok) {
+      this.aiChat(`${byName}，${centerCheck.reason}`);
+      return true;
+    }
+
     const gen = generate(this.world, plan, pos.x, pos.z, rotY);
     if (!gen || (gen.ops.length === 0 && !(gen.removeIds && gen.removeIds.length > 0))) {
       this.aiChat(`${byName}，这里放不下哦（可能太挤了或者在水边），换个位置试试？`);
@@ -67,6 +89,7 @@ export class Builder {
     this.busy.add(by);
     const opId = randomUUID();
     this.aiChat(`收到！${byName} 的订单开工：${gen.summary} 🚧`);
+    // （土地权限过滤在放置阶段执行，全部落点不被允许时会在结束时提示）
 
     const objectIds: string[] = [];
 
@@ -84,12 +107,17 @@ export class Builder {
     const BATCH = 5; // 每批 5 个道具
     const INTERVAL = 90;
     let applied = 0;
+    let skipped = 0;
 
     await new Promise<void>((resolve) => {
       let i = 0;
       const timer = setInterval(() => {
         const batch = gen.ops.slice(i, i + BATCH);
         for (const op of batch) {
+          if (!this.canBuildBy(by, op.x, op.z).ok) {
+            skipped++;
+            continue;
+          }
           const row = this.world.addObject(
             {
               kind: op.kind,
@@ -107,10 +135,10 @@ export class Builder {
           );
           objectIds.push(row.id);
           this.db.insertObject(row);
+          applied++;
           this.io?.emit("world:place", { object: this.publicObject(row) });
         }
         i += BATCH;
-        applied += batch.length;
         const prog: AiProgressPayload = { opId, done: Math.min(applied, total), total, brief };
         this.io?.emit("ai:progress", prog);
         if (i >= total) {
@@ -119,6 +147,9 @@ export class Builder {
         }
       }, INTERVAL);
     });
+    if (applied === 0 && skipped > 0) {
+      this.aiChat(`${byName}，这次的落点全在别人的土地或未获批地块上，订单取消了 🗺️`);
+    }
 
     // 地形雕塑（池塘）
     if (gen.sculpture) {

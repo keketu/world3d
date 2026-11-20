@@ -2,9 +2,10 @@
 // 单渲染器：进房隐藏户外组、挂载室内组；agent 由 charSystem（本地 A*）驱动
 // 附身模式：玩家操控自己的员工——self 幽灵移动，agent 身体镜像跟随，其他人经服务端转发看到
 import * as THREE from "three";
-import { RoomHello, AgentInfo, DOOR, AgentMoveEvent } from "@world3d/shared";
+import { RoomHello, AgentInfo, DOOR, AgentMoveEvent, ROOM, buildingSize, propLabel } from "@world3d/shared";
 import { useWorld } from "../state/store";
 import { buildOfficeRoom, roomBlocked } from "../scene/office/room";
+import { buildInteriorRoom } from "../scene/office/interior";
 import { createOfficeAgent, animateOfficeAgent, OfficeAgentRig } from "../scene/office/agents";
 import { charSystem, setArrivedEmitter } from "../scene/office/agentSystem";
 import { sendRoomArrived, sendRoomJoin, sendRoomLeave, sendRoomTalkTo, sendRoomPossess, sendRoomRelease, sendAgentMove } from "../net/socket";
@@ -37,13 +38,42 @@ interface HostDeps {
 const ROOM_DIST_MIN = 4;
 const ROOM_DIST_MAX = 12;
 
+/** 门的世界坐标 + 目标房间 + 建筑名（game.ts 按造物登记） */
+interface DoorInfo {
+  x: number;
+  z: number;
+  roomId: string;
+  label: string;
+}
+
+/** 当前所在房间（进房后设置，出房清空） */
+interface ActiveRoom {
+  roomId: string;
+  roomType: RoomHello["roomType"];
+  label: string;
+  hw: number;
+  hd: number;
+  /** 室内出口的局部坐标（office = DOOR，普通建筑 = 门口内侧） */
+  exit: { x: number; z: number };
+}
+
+export interface RoomPromptInfo {
+  kind: "enter" | "leave";
+  roomId: string;
+  label: string;
+}
+
 class RoomHost {
   active = false;
   /** 附身中的员工 id（null = 正常操控自己） */
   possessedId: string | null = null;
   private deps: HostDeps | null = null;
   private roomGroup: THREE.Group | null = null;
-  /** 房间实体网格（房间模式下作为点击射线目标） */
+  /** office 房间的实体网格 */
+  private officeSolid: THREE.Mesh | null = null;
+  /** 当前活动房间的组（office 或 建筑室内），退出时统一隐藏 */
+  private activeGroup: THREE.Group | null = null;
+  /** 当前房间的实体网格（房间模式下作为点击射线目标） */
   solidMesh: THREE.Mesh | null = null;
   private roomLights: THREE.PointLight[] = [];
   private rigRoot: THREE.Group | null = null;
@@ -54,39 +84,63 @@ class RoomHost {
   private savedFog: { near: number; far: number } | null = null;
   private savedCamDist = 13;
   private moveTimer = 0;
-  /** 办公楼门口的世界坐标（由 game.ts 根据造物位置更新） */
-  doorWorld: { x: number; z: number } | null = null;
+  /** 各建筑门口的世界坐标（game.ts 按造物登记，可进入建筑都有） */
+  private doorWorlds = new Map<string, DoorInfo>();
+  /** 当前所在房间（office 或 建筑室内） */
+  private activeRoom: ActiveRoom | null = null;
+  /** 建筑室内缓存（roomId → 房间组，进过一次就复用） */
+  private interiors = new Map<string, { group: THREE.Group; solid: THREE.Mesh; hw: number; hd: number }>();
 
   init(deps: HostDeps) {
     this.deps = deps;
     setArrivedEmitter(({ agentId, orderId }) => sendRoomArrived(agentId, orderId));
   }
 
-  /** 办公楼造物就位后由 game.ts 调用 */
-  setDoorWorld(x: number, z: number) {
-    this.doorWorld = { x, z };
+  /** 建筑造物就位后由 game.ts 调用（可进入建筑都有门） */
+  setDoor(id: string, door: DoorInfo) {
+    this.doorWorlds.set(id, door);
   }
 
-  get doorPrompt(): "enter" | "leave" | null {
+  /** 造物被拆除：门与室内缓存一并清理 */
+  removeDoor(id: string) {
+    this.doorWorlds.delete(id);
+    for (const [roomId, cached] of [...this.interiors]) {
+      if (roomId.endsWith(`-${id}`)) {
+        this.deps?.scene.remove(cached.group);
+        this.interiors.delete(roomId);
+      }
+    }
+  }
+
+  /** 门口提示（每帧由 game.ts 读取）：户外找最近的门，室内找出口 */
+  get doorPrompt(): RoomPromptInfo | null {
     if (!this.deps) return null;
     const s = this.deps.getSelf();
     if (!this.active) {
-      if (!this.doorWorld) return null;
-      return Math.hypot(s.x - this.doorWorld.x, s.z - this.doorWorld.z) < 2.2 ? "enter" : null;
+      let best: { d: DoorInfo; dist: number } | null = null;
+      for (const d of this.doorWorlds.values()) {
+        const dist = Math.hypot(s.x - d.x, s.z - d.z);
+        if (dist < 2.2 && (!best || dist < best.dist)) best = { d, dist };
+      }
+      return best ? { kind: "enter", roomId: best.d.roomId, label: best.d.label } : null;
     }
-    return Math.hypot(s.x - DOOR.x, s.z - DOOR.z) < 1.5 ? "leave" : null;
+    const room = this.activeRoom;
+    if (!room) return null;
+    return Math.hypot(s.x - room.exit.x, s.z - room.exit.z) < 1.6
+      ? { kind: "leave", roomId: room.roomId, label: room.label }
+      : null;
   }
 
   /** 按 E / 点按钮：执行门口动作 */
   doorAction() {
     const prompt = this.doorPrompt;
-    if (prompt === "enter") this.requestEnter();
-    else if (prompt === "leave") this.requestLeave();
+    if (prompt?.kind === "enter") this.requestEnter(prompt.roomId);
+    else if (prompt?.kind === "leave") this.requestLeave();
   }
 
-  requestEnter() {
+  requestEnter(roomId: string) {
     if (this.active) return;
-    sendRoomJoin();
+    sendRoomJoin(roomId);
   }
 
   requestLeave() {
@@ -94,8 +148,12 @@ class RoomHost {
     sendRoomLeave();
   }
 
-  /** 房间移动碰撞（玩家行走用） */
+  /** 房间移动碰撞（玩家行走用）：办公房走 office 障碍表，普通建筑按房间尺寸封边 */
   movementBlocked(x: number, z: number): boolean {
+    const room = this.activeRoom;
+    if (room && room.roomType !== "office") {
+      return Math.abs(x) > room.hw - 0.3 || Math.abs(z) > room.hd - 0.3;
+    }
     return roomBlocked(x, z);
   }
 
@@ -146,24 +204,47 @@ class RoomHost {
   enterWithHello(h: RoomHello) {
     if (!this.deps || this.active) return;
     const { scene, fog, labels } = this.deps;
+    const isOffice = h.roomType === "office";
+    const lights: THREE.PointLight[] = [];
 
-    // 室内组（首次构建，之后复用）
-    if (!this.roomGroup) {
-      this.roomGroup = buildOfficeRoom();
-      this.solidMesh = (this.roomGroup.getObjectByName("officeSolid") as THREE.Mesh) ?? null;
-      scene.add(this.roomGroup);
-      for (const lx of [-6, 0, 6]) {
-        const l = new THREE.PointLight(0xfff2dd, 0.7, 18);
-        l.position.set(lx, 2.6, 0);
-        scene.add(l);
-        this.roomLights.push(l);
+    if (isOffice) {
+      // 室内组（首次构建，之后复用）
+      if (!this.roomGroup) {
+        this.roomGroup = buildOfficeRoom();
+        this.officeSolid = (this.roomGroup.getObjectByName("officeSolid") as THREE.Mesh) ?? null;
+        scene.add(this.roomGroup);
+        for (const lx of [-6, 0, 6]) {
+          const l = new THREE.PointLight(0xfff2dd, 0.7, 18);
+          l.position.set(lx, 2.6, 0);
+          scene.add(l);
+          this.roomLights.push(l);
+        }
+        this.rigRoot = new THREE.Group();
+        scene.add(this.rigRoot);
       }
-      this.rigRoot = new THREE.Group();
-      scene.add(this.rigRoot);
+      this.roomGroup.visible = true;
+      this.rigRoot!.visible = true;
+      for (const l of this.roomLights) l.visible = true;
+      this.solidMesh = this.officeSolid;
+    } else {
+      // 通用建筑室内：按 roomId 构建并缓存
+      let entry = this.interiors.get(h.roomId);
+      if (!entry) {
+        const objectId = h.roomId.slice(h.roomType.length + 1);
+        const o = clientWorld.objects.get(objectId);
+        const size = buildingSize(o?.kind ?? h.roomType, o?.params);
+        entry = buildInteriorRoom({ kind: h.roomType as "house" | "shop" | "tower", variant: o?.variant ?? "", w: size.w, d: size.d });
+        scene.add(entry.group);
+        this.interiors.set(h.roomId, entry);
+      }
+      entry.group.visible = true;
+      this.solidMesh = entry.solid;
+      // 追踪当前活动组（退出时统一隐藏）
+      this.activeGroup = entry.group;
     }
-    this.roomGroup.visible = true;
-    this.rigRoot!.visible = true;
-    for (const l of this.roomLights) l.visible = true;
+    if (isOffice) this.activeGroup = this.roomGroup;
+    this.activeGroup!.visible = true;
+    for (const l of lights) l.visible = true;
 
     // 隐藏户外
     const o = this.deps.outdoor;
@@ -177,7 +258,7 @@ class RoomHost {
     fog.near = 90;
     fog.far = 180;
 
-    // 相机拉近 + 高角度俯视（房间无顶、南墙开敞，俯视才不穿墙；office3d 同款视角）
+    // 相机拉近 + 高角度俯视（房间无顶、门墙开敞，俯视才不穿墙）
     this.savedCamDist = this.deps.getCamDist();
     this.deps.setCamDist(9);
     this.deps.setCamPitch(1.02);
@@ -186,21 +267,31 @@ class RoomHost {
     clientWorld.clearRemotes();
     for (const p of h.players) clientWorld.addRemote(p);
 
-    // agent 状态机 + rigs
-    charSystem.hydrate(h.agents);
-    for (const a of h.agents) this.ensureRig(a);
-    for (const [id] of this.rigs) {
-      if (!h.agents.some((a) => a.id === id)) this.removeRig(id);
-    }
-
     // 自身放到门口
     this.deps.setSelf(h.spawn.x, 0, h.spawn.z, h.spawn.rotY);
 
     // 状态入库
     const st = useWorld.getState();
-    st.setOfficeState(h.agents, h.projects, h.tasks, h.dialogues);
+    if (isOffice) {
+      st.setOfficeState(h.agents, h.projects, h.tasks, h.dialogues);
+      charSystem.hydrate(h.agents);
+      for (const a of h.agents) this.ensureRig(a);
+      for (const [id] of this.rigs) {
+        if (!h.agents.some((a) => a.id === id)) this.removeRig(id);
+      }
+    } else {
+      useWorld.setState({ agents: [] }); // 普通建筑房间没有员工
+    }
     st.setInRoom(true, h.roomId);
-    st.pushToast("🏢 已进入 小世界科技 办公室");
+    this.activeRoom = {
+      roomId: h.roomId,
+      roomType: h.roomType,
+      label: h.roomType === "office" ? "办公楼" : propLabel(h.roomType, clientWorld.objects.get(h.roomId.slice(h.roomType.length + 1))?.variant ?? ""),
+      hw: this.interiors.get(h.roomId)?.hw ?? ROOM.width / 2 - 0.6,
+      hd: this.interiors.get(h.roomId)?.hd ?? ROOM.depth / 2 - 0.6,
+      exit: isOffice ? { x: DOOR.x, z: DOOR.z } : { x: 0, z: (this.interiors.get(h.roomId)?.hd ?? ROOM.depth / 2) - 0.4 },
+    };
+    st.pushToast(`🚪 已进入 ${this.activeRoom.label}`);
     this.active = true;
     void labels;
   }
@@ -209,8 +300,9 @@ class RoomHost {
   exitTo(outdoor: { x: number; y: number; z: number; rotY: number }) {
     if (!this.deps || !this.active) return;
     const { fog, labels } = this.deps;
+    const wasOffice = this.activeRoom?.roomType === "office";
 
-    if (this.roomGroup) this.roomGroup.visible = false;
+    if (this.activeGroup) this.activeGroup.visible = false;
     if (this.rigRoot) this.rigRoot.visible = false;
     for (const l of this.roomLights) l.visible = false;
     const o = this.deps.outdoor;
@@ -240,7 +332,10 @@ class RoomHost {
 
     const st = useWorld.getState();
     st.setInRoom(false, null);
-    st.pushToast("🌸 回到了小世界");
+    st.pushToast(wasOffice ? "🌸 回到了小世界" : "🚪 走出了建筑");
+    this.activeRoom = null;
+    this.activeGroup = null;
+    this.solidMesh = null;
     this.active = false;
   }
 

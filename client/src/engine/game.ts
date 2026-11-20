@@ -1,6 +1,6 @@
 // 游戏引擎：低模世界渲染循环、本地玩家、道具交互、标签系统、远端玩家
 import * as THREE from "three";
-import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, isBuildingKind, propIcon } from "@world3d/shared";
+import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, isBuildingKind, buildingSize, plotBounds, propIcon, propLabel } from "@world3d/shared";
 import { clientWorld } from "./world";
 import { buildTerrain } from "./terrain";
 import { buildProp } from "./props";
@@ -122,10 +122,18 @@ export function startGame(container: HTMLElement): GameHandle {
     propMeshes.set(o.id, { mesh, labelY, seatY: y, creator: o.creatorName, variant: o.variant, kind: o.kind });
     if (animate) popAnims.set(o.id, 0);
     if (isBuildingKind(o.kind) && !animate) rebuildCamBox(o.id, mesh);
-    // 办公楼：计算门口世界坐标（进门触发点）
-    if (o.kind === "office") {
-      const doorDist = Number(o.params?.doorDist ?? 4.6);
-      roomHost.setDoorWorld(o.x + Math.sin(o.rotY) * doorDist, o.z + Math.cos(o.rotY) * doorDist);
+    // 可进入建筑：登记门口世界坐标与目标房间（进门触发点）
+    if (isBuildingKind(o.kind)) {
+      const size = buildingSize(o.kind, o.params);
+      const doorDist = o.kind === "office"
+        ? Number(o.params?.doorDist ?? 4.6)
+        : o.kind === "tower" ? size.d / 2 + 2.2 : o.kind === "shop" ? size.d / 2 + 0.9 : size.d / 2 + 0.5;
+      roomHost.setDoor(o.id, {
+        x: o.x + Math.sin(o.rotY) * doorDist,
+        z: o.z + Math.cos(o.rotY) * doorDist,
+        roomId: o.kind === "office" ? "office-1" : `${o.kind}-${o.id}`,
+        label: propLabel(o.kind, o.variant),
+      });
     }
   }
 
@@ -142,6 +150,7 @@ export function startGame(container: HTMLElement): GameHandle {
       propMeshes.delete(id);
     }
     camBoxes.delete(id);
+    roomHost.removeDoor(id);
     if (wasBuilding) rebuildTerrain();
   };
 
@@ -563,6 +572,53 @@ export function startGame(container: HTMLElement): GameHandle {
   highlightRing.visible = false;
   scene.add(highlightRing);
 
+  // ---------- 目的地标记：固定在目标点的脉冲圈 + 脚前指向行进方向的箭头 ----------
+  const destRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.9, 1.15, 36),
+    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+  );
+  destRing.rotation.x = -Math.PI / 2;
+  destRing.visible = false;
+  scene.add(destRing);
+  const destArrow = new THREE.Group();
+  const destArrowCone = new THREE.Mesh(
+    new THREE.ConeGeometry(0.5, 1.3, 3),
+    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.85 })
+  );
+  destArrowCone.rotation.x = Math.PI / 2; // 锥体平躺，尖端指向局部 +z
+  destArrow.add(destArrowCone);
+  destArrow.visible = false;
+  scene.add(destArrow);
+
+  // ---------- 土地边界线（🗺 土地面板打开时显示 24 块地归属着色） ----------
+  const landLines = new THREE.Group();
+  landLines.visible = false;
+  scene.add(landLines);
+  function setLandOverlay(rows: Array<{ plotId: string; ownerId: string; ownerName: string }> | null) {
+    landLines.clear();
+    if (!rows) return;
+    const st0 = useWorld.getState();
+    const myKey = st0.auth.user ? `u:${st0.auth.user.id}` : "";
+    for (const row of rows) {
+      const b = plotBounds(row.plotId);
+      if (!b) continue;
+      const color = !row.ownerId ? 0xb8b2a4 : row.ownerId === myKey ? 0x6fdd8b : 0xe08a8a;
+      const y = clientWorld.surfaceY((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2) + 0.15;
+      const pts = [
+        new THREE.Vector3(b.x0, y, b.z0),
+        new THREE.Vector3(b.x1, y, b.z0),
+        new THREE.Vector3(b.x1, y, b.z1),
+        new THREE.Vector3(b.x0, y, b.z1),
+        new THREE.Vector3(b.x0, y, b.z0),
+      ];
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.75 })
+      );
+      landLines.add(line);
+    }
+  }
+
   // ---------- 标签系统 ----------
   const labelLayer = document.createElement("div");
   labelLayer.className = "labelLayer";
@@ -845,6 +901,24 @@ export function startGame(container: HTMLElement): GameHandle {
         const groundY = clientWorld.surfaceY(self.x, self.z);
         self.y += (groundY - self.y) * Math.min(1, dt * 8);
       }
+
+      // ---------- 目的地标记：圈固定在目标点，箭头在脚前指向行进方向 ----------
+      const dest = moveTarget ?? (roomPath && roomPath.length ? roomPath[roomPath.length - 1] : null);
+      destRing.visible = !!dest;
+      destArrow.visible = !!dest;
+      if (dest) {
+        const indoor = roomHost.active;
+        destRing.position.set(dest.x, indoor ? 0.07 : clientWorld.surfaceY(dest.x, dest.z) + 0.12, dest.z);
+        destRing.scale.setScalar(1 + Math.sin(time * 5) * 0.06);
+        const dx = dest.x - self.x;
+        const dz = dest.z - self.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 0.6) {
+          destArrow.visible = true;
+          destArrow.position.set(self.x + (dx / dist) * 1.1, indoor ? 0.3 : self.y + 0.35, self.z + (dz / dist) * 1.1);
+          destArrow.rotation.y = Math.atan2(dx, dz);
+        }
+      }
       self.anim = moving ? "walk" : "idle";
 
       moveTimer += dt;
@@ -902,6 +976,9 @@ export function startGame(container: HTMLElement): GameHandle {
       setLabel(`tag-${r.info.id}`, off ? `💤 ${r.info.name}` : r.info.name, g.position.x, g.position.y + 1.72, g.position.z, off ? "nameTag offline" : "nameTag");
     }
 
+    // 土地边界线随面板开关显隐
+    landLines.visible = st.landOpen && st.joined && !roomHost.active;
+
     // 6. 射线悬停 + 高亮环 + 溯源提示（房间内跳过：户外射线无意义）
     if (st.joined && !roomHost.active) {
       hoverTarget = raycastWorld();
@@ -942,7 +1019,7 @@ export function startGame(container: HTMLElement): GameHandle {
     // 门口提示检测（每帧，廉价）
     if (st.joined) {
       const prompt = roomHost.doorPrompt;
-      if (st.roomPrompt !== prompt) st.setRoomPrompt(prompt);
+      if (prompt?.kind !== st.roomPrompt?.kind || prompt?.roomId !== st.roomPrompt?.roomId) st.setRoomPrompt(prompt);
     }
     camTarget.set(self.x, self.y + 1.2, self.z);
     if (viewMode === "first") {
@@ -1089,6 +1166,7 @@ export function startGame(container: HTMLElement): GameHandle {
       chatOpen: !!document.querySelector(".chatPanel.open"),
     }),
     store: useWorld,
+    setLandOverlay: (rows: Array<{ plotId: string; ownerId: string; ownerName: string }> | null) => setLandOverlay(rows),
   };
 
   return {

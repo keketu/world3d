@@ -98,6 +98,73 @@ export interface CityLot {
 const TOWER_VARIANTS = ["蓝玻璃", "暖白", "陶土红"];
 const SHOP_VARIANTS = ["咖啡橙", "薄荷绿", "奶油黄"];
 
+// ---------- 土地权：九州 = 内部街区 1..3×1..3，每州 2×2 象限共 4 块小地块 ----------
+
+export interface PlotBounds {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+}
+
+export interface PlotInfo {
+  plotId: string;
+  /** 所属州 = 街区 blockId */
+  state: string;
+  bounds: PlotBounds;
+}
+
+/** 街区内部边界（去掉道路与人行道） */
+function blockInner(b: number): [number, number] {
+  return [ROAD_LINES[b - 1] + ROAD_HALF + SIDEWALK_W, ROAD_LINES[b] - ROAD_HALF - SIDEWALK_W];
+}
+
+/** 某坐标所在的九州小地块 id（如 1-1#00）；广场/公园/绿带/道路返回 null（公共区） */
+export function plotIdAt(x: number, z: number): string | null {
+  const ci = bandIndex(x);
+  const cj = bandIndex(z);
+  if (ci < 1 || ci > 3 || cj < 1 || cj > 3) return null;
+  const state = `${ci}-${cj}`;
+  if (PLAZA_BLOCKS.has(state) || PARK_BLOCKS.has(state)) return null;
+  const [x0, x1] = blockInner(ci);
+  const [z0, z1] = blockInner(cj);
+  const qx = x < (x0 + x1) / 2 ? 0 : 1;
+  const qz = z < (z0 + z1) / 2 ? 0 : 1;
+  return `${state}#${qx}${qz}`;
+}
+
+/** 地块 id → 矩形边界 */
+export function plotBounds(plotId: string): PlotBounds | null {
+  const m = plotId.match(/^([1-3])-([1-3])#([01])([01])$/);
+  if (!m) return null;
+  const [x0, x1] = blockInner(Number(m[1]));
+  const [z0, z1] = blockInner(Number(m[2]));
+  const mx = (x0 + x1) / 2;
+  const mz = (z0 + z1) / 2;
+  const qx = Number(m[3]);
+  const qz = Number(m[4]);
+  return { x0: qx ? mx : x0, x1: qx ? x1 : mx, z0: qz ? mz : z0, z1: qz ? z1 : mz };
+}
+
+/** 全部可申请地块（24 块：6 州 × 4） */
+export function listPlots(): PlotInfo[] {
+  const out: PlotInfo[] = [];
+  for (let ci = 1; ci <= 3; ci++) {
+    for (let cj = 1; cj <= 3; cj++) {
+      const state = `${ci}-${cj}`;
+      if (PLAZA_BLOCKS.has(state) || PARK_BLOCKS.has(state)) continue;
+      const [x0, x1] = blockInner(ci);
+      const [z0, z1] = blockInner(cj);
+      const mx = (x0 + x1) / 2;
+      const mz = (z0 + z1) / 2;
+      for (const [qx, qz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as Array<[number, number]>) {
+        out.push({ plotId: `${state}#${qx}${qz}`, state, bounds: { x0: qx ? mx : x0, x1: qx ? x1 : mx, z0: qz ? mz : z0, z1: qz ? z1 : mz } });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * 城市建筑落位表（确定性）：非广场/公园的 6 个街区里，
  * 3 块放写字楼（各 2 栋，块内左右分立），3 块放商铺（各 3 间，沿临街面排开）

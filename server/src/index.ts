@@ -15,6 +15,9 @@ import {
   RoomHello,
   WorldObject,
   PROP_KINDS,
+  isBuildingKind,
+  buildingSize,
+  plotIdAt,
   cityLots,
   PARK_IDS,
   mulberry32,
@@ -30,6 +33,7 @@ import { attestPublicKeyPem, buildMerkleRoot, initAttest, signObject, verifyObje
 import { Audit } from "./audit.js";
 import { registerAdminApi } from "./adminApi.js";
 import { registerMeApi } from "./meApi.js";
+import { registerLandApi } from "./landApi.js";
 import { initLlmCrypto, providerById } from "./llm.js";
 import { LlmBrain } from "./engine/office/llmBrain.js";
 
@@ -286,10 +290,10 @@ const ROOM_EVENT_MAP: Record<string, string> = {
 // 启动播种：把玩家雇佣的个人 agent 送进办公室（有空余加座才入座）
 officeRoom.syncPersonalAgents();
 
-/** 房间内广播：发给所有在该房间的玩家 */
-const emitToRoom = (ev: string, payload: unknown) => {
+/** 房间内广播：发给指定房间的玩家（默认办公室） */
+const emitToRoom = (ev: string, payload: unknown, roomId: string = OFFICE_ROOM_ID) => {
   const wired = ROOM_EVENT_MAP[ev] ?? `room:${ev}`;
-  for (const p of presence.playersInRoom(OFFICE_ROOM_ID)) toSocket(p.socketId, wired, payload);
+  for (const p of presence.playersInRoom(roomId)) toSocket(p.socketId, wired, payload);
 };
 officeRoom.attach(emitToRoom);
 // 玩家自带 LLM：登录账号且在 /me 配置并启用了大模型 → 办公室 agent 用 TA 的模型说话/干活
@@ -339,6 +343,18 @@ function emitSameSpace(target: Player | null, event: string, payload: unknown) {
 function releasePossessionOnExit(playerId: string) {
   if (officeRoom.possessorOf(playerId)) officeRoom.releaseByPlayer(playerId, true);
 }
+
+/** 强制请出一个房间的所有成员（建筑被拆除等）：恢复户外坐标并通知客户端退出 */
+const kickRoomMembers = (roomId: string) => {
+  for (const m of presence.playersInRoom(roomId)) {
+    releasePossessionOnExit(m.id);
+    const outdoor = m.outdoor ?? { x: 128.5, y: 14, z: 128.5, rotY: 0 };
+    presence.setRoom(m.id, null);
+    emitSameSpace(m, "player:join", presence.publicInfo(m));
+    toSocket(m.socketId, "room:kicked", { ok: true, outdoor });
+  }
+  };
+
 
 /**
  * 离开（断线/主动退出/换身份统一路径）：小人**留在原地驻留**为离线状态（半透明💤），
@@ -439,6 +455,7 @@ registerAdminApi(app, { db, world, presence, io, toSocket, adminFromReq, audit }
 
 // 个人面板（任何登录用户）：只读自己的数据
 registerMeApi(app, { db, world, presence, officeRoom });
+registerLandApi(app, { db, presence, io, toSocket, adminFromReq, audit });
 
 // 兼容旧路径（保留给旧前端）
 app.get("/api/admin/stats", (req: AuthedRequest, res) => {
@@ -505,6 +522,7 @@ app.delete("/api/admin/object/:id", (req: AuthedRequest, res) => {
   world.removeObject(o.id);
   db.deleteObject(o.id);
   io.emit("world:remove", { id: o.id, by: admin.id });
+  if (isBuildingKind(o.kind)) kickRoomMembers(`${o.kind}-${o.id}`);
   audit.audit(admin.id, admin.name, "删除造物", "object", o.id, `${o.kind}（${o.creatorName}）`);
   res.json({ ok: true });
 });
@@ -584,7 +602,8 @@ io.on("connection", (socket: Socket) => {
     const p = presence.get(playerId);
     if (p?.userId && Date.now() - lastPosSave > 30_000) {
       lastPosSave = Date.now();
-      db.savePlayerPos(p.userId, p.x, p.y, p.z, p.rotY);
+      const pp = p.outdoor ?? p; // 房间内 p.x/z 是局部坐标，落库存户外坐标
+      db.savePlayerPos(p.userId, pp.x, pp.y, pp.z, pp.rotY);
     }
   });
 
@@ -605,6 +624,18 @@ io.on("connection", (socket: Socket) => {
       if (!PROP_KINDS[kind] || Number.isNaN(x) || Number.isNaN(z)) return ack?.({ ok: false, reason: "参数无效" });
       const v = world.validatePlacement(kind, x, z);
       if (!v.ok) return ack?.({ ok: false, reason: v.reason });
+      // 土地建造权限：九州地块须归属本人（管理员/州长豁免），公共区（广场/公园/道路/绿带）放行
+      const plotId = plotIdAt(x, z);
+      if (plotId) {
+        const plot = db.getPlot(plotId);
+        const ownerKey = p.userId ? `u:${p.userId}` : p.id;
+        const u = p.userId ? db.findUserById(p.userId) : null;
+        const isAdmin = !!u && !u.banned && u.role === "admin";
+        const isGov = !!p.userId && !!plot && db.getGovernor(plot.state)?.userId === p.userId;
+        if ((!plot || plot.ownerId !== ownerKey) && !isAdmin && !isGov) {
+          return ack?.({ ok: false, reason: plot ? `该地块已被 ${plot.ownerName} 认领` : "这块地还没批给你——在「🗺 土地」面板申请后就能盖了" });
+        }
+      }
       // 归属：登录玩家用账号 id（跨会话稳定），游客用当次会话 id
       const creatorId = p.userId ? `u:${p.userId}` : p.id;
       const row = world.addObject(
@@ -641,6 +672,7 @@ io.on("connection", (socket: Socket) => {
     world.removeObject(o.id);
     db.deleteObject(o.id);
     io.emit("world:remove", { id: o.id, by: p.id });
+    if (isBuildingKind(o.kind)) kickRoomMembers(`${o.kind}-${o.id}`); // 房内成员强制请出
     audit.event("remove", p.name, p.userId ?? p.id, `${p.name} 拆除了 ${o.kind}`, { objectId: o.id });
     ack?.({ ok: true });
   });
@@ -678,32 +710,61 @@ io.on("connection", (socket: Socket) => {
     dwellOffline(p); // 小人原地驻留为离线状态，同身份再上线原地复活
   });
 
-  // ---------- 房间（office） ----------
-  socket.on("room:join", (_payload: unknown, ack?: (h: RoomHello | { ok: false; reason: string }) => void) => {
+  // ---------- 房间（office + 可进入建筑） ----------
+  socket.on("room:join", (payload: { roomId?: string } | undefined, ack?: (h: RoomHello | { ok: false; reason: string }) => void) => {
     const p = playerId ? presence.get(playerId) : null;
     if (!p) return ack?.({ ok: false, reason: "未加入世界" });
     if (p.roomId) return ack?.({ ok: false, reason: "已在房间内" });
-    // 进房：记录户外位置，坐标切到房间门口
-    presence.setRoom(p.id, OFFICE_ROOM_ID, { x: 2.7, y: 0, z: 6.4 });
+    const wanted = String(payload?.roomId ?? OFFICE_ROOM_ID);
+
+    let spawn: { x: number; z: number; rotY: number };
+    let hello: RoomHello;
+    if (wanted === OFFICE_ROOM_ID) {
+      // 办公室：固定出生点（门旁空地，面朝房间深处）
+      spawn = { x: 2.7, z: 6.4, rotY: Math.PI };
+      presence.setRoom(p.id, OFFICE_ROOM_ID, { x: spawn.x, y: 0, z: spawn.z });
+      hello = officeRoom.hello(
+        presence.publicInfo(p),
+        presence.playersInRoom(OFFICE_ROOM_ID).filter((m) => m.id !== p.id).map((m) => presence.publicInfo(m))
+      );
+    } else {
+      // 建筑室内房间：roomId = `${kind}-${objectId}`
+      const sep = wanted.indexOf("-");
+      const kind = wanted.slice(0, sep);
+      const objectId = wanted.slice(sep + 1);
+      if (!isBuildingKind(kind) || kind === "office") return ack?.({ ok: false, reason: "这里进不去" });
+      const o = world.objects.get(objectId);
+      if (!o || o.kind !== kind) return ack?.({ ok: false, reason: "建筑不存在或已拆除" });
+      const size = buildingSize(o.kind, o.params);
+      spawn = { x: 0, z: size.d / 2 - 1.8, rotY: Math.PI }; // 门口内侧，面朝房间深处
+      presence.setRoom(p.id, wanted, { x: spawn.x, y: 0, z: spawn.z });
+      hello = {
+        roomId: wanted,
+        roomType: kind as RoomHello["roomType"],
+        spawn,
+        players: presence.playersInRoom(wanted).filter((m) => m.id !== p.id).map((m) => presence.publicInfo(m)),
+        agents: [],
+        projects: [],
+        tasks: [],
+        dialogues: [],
+      };
+    }
+
     // 让户外同伴移除自己的远程分身
     emitSameSpace({ ...p, roomId: null } as Player, "player:leave", { id: p.id, name: p.name });
     // 房间内成员收到新玩家
-    const members = presence.playersInRoom(OFFICE_ROOM_ID).filter((m) => m.id !== p.id);
-    for (const m of members) {
-      toSocket(m.socketId, "room:playerJoin", presence.publicInfo(p));
+    for (const m of presence.playersInRoom(wanted)) {
+      if (m.id !== p.id) toSocket(m.socketId, "room:playerJoin", presence.publicInfo(p));
     }
-    const hello = officeRoom.hello(
-      presence.publicInfo(p),
-      members.map((m) => presence.publicInfo(m))
-    );
     ack?.(hello);
   });
+
 
   socket.on("room:leave", (_payload: unknown, ack?: (res: { ok: boolean; outdoor?: { x: number; y: number; z: number; rotY: number } }) => void) => {
     const p = playerId ? presence.get(playerId) : null;
     if (!p || !p.roomId) return ack?.({ ok: false });
     releasePossessionOnExit(p.id); // 出房间先解除附身
-    emitToRoom("playerLeave", { id: p.id });
+    emitToRoom("playerLeave", { id: p.id }, p.roomId);
     const outdoor = p.outdoor ?? { x: 128.5, y: 14, z: 128.5, rotY: 0 };
     presence.setRoom(p.id, null);
     // 回到户外：通知附近户外玩家自己的存在（远程分身重建）

@@ -10,6 +10,7 @@ import Players from "./pages/Players";
 import Broadcast from "./pages/Broadcast";
 import Chat from "./pages/Chat";
 import Objects from "./pages/Objects";
+import Land from "./pages/Land";
 import Projects from "./pages/Projects";
 import Attest from "./pages/Attest";
 import AuditPage from "./pages/Audit";
@@ -19,6 +20,7 @@ import "./admin.css";
 export type PageId =
   | "overview"
   | "users"
+  | "land"
   | "players"
   | "broadcast"
   | "chat"
@@ -42,6 +44,7 @@ const NAV: NavItem[] = [
   { id: "broadcast", icon: "📢", label: "广播公告", group: "运营" },
   { id: "chat", icon: "💬", label: "聊天记录", group: "运营" },
   { id: "objects", icon: "🏝", label: "世界造物", group: "内容" },
+  { id: "land", icon: "🗺", label: "土地管理", group: "内容" },
   { id: "projects", icon: "📋", label: "办公室项目", group: "内容" },
   { id: "attest", icon: "🔐", label: "产权存证", group: "内容" },
   { id: "audit", icon: "🛡", label: "审计日志", group: "系统" },
@@ -149,6 +152,7 @@ export default function AdminApp() {
           {page === "broadcast" && <Broadcast token={token} push={push} />}
           {page === "chat" && <Chat token={token} push={push} />}
           {page === "objects" && <Objects token={token} push={push} />}
+          {page === "land" && <Land token={token} push={push} />}
           {page === "projects" && <Projects token={token} />}
           {page === "attest" && <Attest token={token} push={push} />}
           {page === "audit" && <AuditPage token={token} />}

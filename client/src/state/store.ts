@@ -73,6 +73,9 @@ interface WorldState {
   objects: WorldObject[];
   toasts: Toast[];
   showOwnerLabels: boolean;
+  /** 土地面板开关（打开时地面显示地块边界） */
+  landOpen: boolean;
+
   tier: QualityTier;
   hotbarIndex: number;
   aiBusy: boolean;
@@ -81,7 +84,8 @@ interface WorldState {
   // ---------- office 房间 ----------
   inRoom: boolean;
   roomId: string | null;
-  roomPrompt: "enter" | "leave" | null;
+  /** 门口提示：enter=可进建筑（带目标房间与建筑名），leave=可离开 */
+  roomPrompt: { kind: "enter" | "leave"; roomId: string; label: string } | null;
   agents: AgentInfo[];
   projects: ProjectInfo[];
   tasks: TaskInfo[];
@@ -106,12 +110,13 @@ interface WorldState {
   pushToast(text: string): void;
   addObject(o: WorldObject): void;
   toggleOwnerLabels(): void;
+  setLandOpen(v: boolean): void;
   setTier(t: QualityTier): void;
   setHotbar(i: number): void;
   toggleView(): void;
 
   setInRoom(v: boolean, roomId: string | null): void;
-  setRoomPrompt(p: "enter" | "leave" | null): void;
+  setRoomPrompt(p: { kind: "enter" | "leave"; roomId: string; label: string } | null): void;
   setOfficeState(agents: AgentInfo[], projects: ProjectInfo[], tasks: TaskInfo[], dialogues: DialogueLine[]): void;
   upsertAgent(a: AgentInfo): void;
   upsertProject(p: ProjectInfo): void;
@@ -147,6 +152,7 @@ export const useWorld = create<WorldState>((set) => ({
   inRoom: false,
   roomId: null,
   roomPrompt: null,
+  landOpen: false,
   agents: [],
   projects: [],
   tasks: [],
@@ -188,6 +194,7 @@ export const useWorld = create<WorldState>((set) => ({
     }),
   addObject: (o) => set((s) => ({ objects: [...s.objects, o] })),
   toggleOwnerLabels: () => set((s) => ({ showOwnerLabels: !s.showOwnerLabels })),
+  setLandOpen: (v) => set({ landOpen: v }),
   setTier: (t) => set({ tier: t }),
   setHotbar: (i) => set({ hotbarIndex: i }),
   toggleView: () => set((s) => ({ viewMode: s.viewMode === "third" ? "first" : "third" })),
