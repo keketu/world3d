@@ -95,7 +95,8 @@ function registerHandlers(s: Socket) {
   s.on("player:join", (p: PlayerInfo) => {
     // io.emit 会把新玩家的 join 广播回自己——过滤，否则渲染出自己的分身
     if (p.id === useWorld.getState().selfId) return;
-    clientWorld.addRemote(p);
+    // upsert：同 id 是「离线驻留→原地复活」（服务端复用条目），要刷新 info 翻转灰色💤
+    clientWorld.upsertRemote(p);
   });
 
   s.on("player:leave", (p: { id: string }) => {

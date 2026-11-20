@@ -142,8 +142,11 @@ function TopBar({ onSettings }: { onSettings: () => void }) {
     return (
       <div className="topBar">
         <div className="brand">🌍 小世界</div>
-        <div className={`connPill ${connected ? "on" : "off"}`}>{connected ? "●" : "○"}</div>
-        <div className="playersPill">👥 {players.length + 1}</div>
+        {/* 连接状态点并入人数胶囊：少一个孤立胶囊，顶栏更干净 */}
+        <div className={`playersPill ${connected ? "" : "off"}`}>
+          <i className={`connDot ${connected ? "on" : "off"}`} />
+          👥 {players.length + 1}
+        </div>
         <i className="topBarGap" />
         <button className="toggleBtn" onClick={onSettings} title="设置">
           ⚙

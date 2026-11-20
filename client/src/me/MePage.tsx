@@ -69,7 +69,7 @@ export default function MePage({ token, user }: { token: string; user: AuthUser 
     <div className="meRoot">
       {/* 顶部：我的名片 */}
       <header className="meHero">
-        <div className="meHeroAvatar">👤</div>
+        <div className="meHeroAvatar">🌸</div>
         <div className="meHeroInfo">
           <div className="meHeroName">
             {data.user.name}

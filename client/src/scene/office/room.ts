@@ -35,7 +35,7 @@ const C = {
   machine: "#5a544a",
   trophy: "#e8c45a",
   door: "#a8805a",
-  doormat: "#c65f76",
+  doormat: "#db8f9f",
 };
 
 interface Part {

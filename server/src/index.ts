@@ -99,16 +99,25 @@ function adminFromReq(req: AuthedRequest): AuthUser | null {
 for (const mod of db.loadMods()) world.mods.set(mod.id, { ...mod });
 for (const o of db.loadObjects()) world.objects.set(o.id, { ...o, params: (o.params ?? {}) as Record<string, unknown> });
 
-// 办公楼造物（出生区旁固定位置，boot 时确保存在）
+// 办公楼造物（boot 时确保存在）；出生点迁移到南岸后，老办公楼自动搬进新出生区
 const OFFICE_BUILDING = { kind: "office", variant: "小世界科技", x: 118, z: 114, rotY: 0.62, doorDist: 4.6 };
+const SPAWN = world.findSpawn();
+// 出生点局部坐标系：+z_local = 面朝大海（岛心→出生点向外），+x_local = 画面右侧
+const SPAWN_C = world.size / 2;
+const SPAWN_UX = (SPAWN.x - SPAWN_C) / (Math.hypot(SPAWN.x - SPAWN_C, SPAWN.z - SPAWN_C) || 1);
+const SPAWN_UZ = (SPAWN.z - SPAWN_C) / (Math.hypot(SPAWN.x - SPAWN_C, SPAWN.z - SPAWN_C) || 1);
+const spawnLocal = (lx: number, lz: number) => ({ x: SPAWN.x + lx * SPAWN_UZ + lz * SPAWN_UX, z: SPAWN.z - lx * SPAWN_UX + lz * SPAWN_UZ });
+const OFFICE_POS = spawnLocal(-16, -14); // 楼在出生点身后偏右更远处（朝岛心），门朝出生点，不抢出生画面的镜
+console.log(`[world3d] 出生点 (${SPAWN.x.toFixed(1)}, ${SPAWN.z.toFixed(1)}) 办公楼 (${OFFICE_POS.x.toFixed(1)}, ${OFFICE_POS.z.toFixed(1)})`);
+const OFFICE_ROTY = Math.atan2(SPAWN.x - OFFICE_POS.x, SPAWN.z - OFFICE_POS.z);
 if (![...world.objects.values()].some((o) => o.kind === "office")) {
   const row = world.addObject(
     {
       kind: OFFICE_BUILDING.kind,
       variant: OFFICE_BUILDING.variant,
-      x: OFFICE_BUILDING.x,
-      z: OFFICE_BUILDING.z,
-      rotY: OFFICE_BUILDING.rotY,
+      x: OFFICE_POS.x,
+      z: OFFICE_POS.z,
+      rotY: OFFICE_ROTY,
       scale: 1,
       creatorId: "system",
       creatorName: "小世界",
@@ -118,6 +127,15 @@ if (![...world.objects.values()].some((o) => o.kind === "office")) {
     { doorDist: OFFICE_BUILDING.doorDist }
   );
   db.insertObject(row);
+} else {
+  const office = [...world.objects.values()].find((o) => o.kind === "office")!;
+  // 与「理想落位」对齐（位置差 >6m 或朝向差 >0.3rad 就搬）：出生点一变楼就跟着归位，门口正对出生点
+  if (Math.hypot(office.x - OFFICE_POS.x, office.z - OFFICE_POS.z) > 6 || Math.abs(office.rotY - OFFICE_ROTY) > 0.3) {
+    office.x = OFFICE_POS.x;
+    office.z = OFFICE_POS.z;
+    office.rotY = OFFICE_ROTY;
+    db.updateObjectPos(office.id, office.x, office.z, office.rotY);
+  }
 }
 
 const toSocket = (socketId: string, event: string, payload: unknown) => {
@@ -125,6 +143,52 @@ const toSocket = (socketId: string, event: string, payload: unknown) => {
 };
 presence.attach(io, toSocket);
 builder.attach(io);
+
+// 出生点迎宾景观（boot 时对账）：树花按当前出生点布局对齐 —— 多余/错位删除，缺失补种（不动用户造物）
+{
+  const S = SPAWN;
+  // 期望布局（与下方种树表一致）
+  const welcomeOffsets: Array<[number, number, string, "tree" | "flower"]> = [
+    [2.6, 4.2, "樱花", "tree"],
+    [-2.8, 4.8, "樱花", "tree"],
+    [-11, -3, "樱花", "tree"],
+    [11.5, -3.5, "樱花", "tree"],
+    [-12.5, -7, "白桦", "tree"],
+    [13, -7.5, "橡", "tree"],
+    [4.5, -1.5, "粉", "flower"],
+    [-5, -2, "白", "flower"],
+    [3, -6.5, "黄", "flower"],
+    [-3.5, -7, "粉", "flower"],
+  ];
+  const expected = welcomeOffsets.map(([lx, lz, variant, kind]) => ({ ...spawnLocal(lx, lz), variant, kind }));
+  // 清场：system 树花里凡是没对上期望布局的（错位/旧版/漂移残留）一律移除
+  for (const o of [...world.objects.values()]) {
+    if (o.creatorId !== "system" || (o.kind !== "tree" && o.kind !== "flower")) continue;
+    const hit = expected.find(
+      (e) => e.kind === o.kind && e.variant === o.variant && Math.hypot(e.x - o.x, e.z - o.z) < 1.2
+    );
+    if (!hit) {
+      world.objects.delete(o.id);
+      db.deleteObject(o.id);
+    }
+  }
+  // 补种：期望布局里缺失的坑位逐个补上
+  for (const p of expected) {
+    const exists = [...world.objects.values()].some(
+      (o) => o.creatorId === "system" && o.kind === p.kind && Math.hypot(o.x - p.x, o.z - p.z) < 1.2
+    );
+    if (exists) continue;
+    const h = world.heightAt(Math.floor(p.x), Math.floor(p.z));
+    // 岸线樱花允许站在水线/湿沙里（海岸樱花），花草只种在干地上
+    const minH = p.kind === "tree" ? 7.2 : 10.6;
+    if (h < minH) continue;
+    const row = world.addObject(
+      { kind: p.kind, variant: p.variant, x: p.x, z: p.z, rotY: Math.random() * Math.PI * 2, scale: p.kind === "tree" ? 1.15 : 1, creatorId: "system", creatorName: "小世界", createdAt: Date.now(), params: {} },
+      {}
+    );
+    db.insertObject(row);
+  }
+}
 
 /** 编排器事件名 → 客户端 room:* 事件名映射 */
 const ROOM_EVENT_MAP: Record<string, string> = {
@@ -394,7 +458,8 @@ io.on("connection", (socket: Socket) => {
       }
     }
     // 登录玩家：服务重启后内存条目丢失 → 用落库的最后位置复活（重启前的原地）
-    let spawn = world.findSpawn();
+    // 出生点用 boot 时算好的 SPAWN：join 时重跑 findSpawn 会被已生成的办公楼/迎宾树挡位，出生点漂移
+    let spawn = SPAWN;
     if (userId) {
       const last = db.getPlayerPos(userId);
       if (last) spawn = { x: last.x, y: last.y, z: last.z };

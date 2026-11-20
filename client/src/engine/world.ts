@@ -110,6 +110,17 @@ class ClientWorld {
     this.remoteFactory?.(p);
   }
 
+  /** 已存在则原地更新（同 id 复活：服务端复用条目再广播 player:join，兴趣半径外的分身也靠它翻转离线态） */
+  upsertRemote(p: PlayerInfo) {
+    const r = this.remotes.get(p.id);
+    if (!r) {
+      this.addRemote(p);
+      return;
+    }
+    r.target = { x: p.x, y: p.y, z: p.z, rotY: p.rotY };
+    r.info = p;
+  }
+
   removeRemote(id: string) {
     this.remoteRemover?.(id);
     this.remotes.delete(id);

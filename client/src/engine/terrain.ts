@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { WATER_LEVEL } from "@world3d/shared";
 import { clientWorld } from "./world";
 
-const SEGMENTS = 180; // 256 世界 / 180 段 ≈ 1.4m 一格，平滑起伏
+const SEGMENTS = 220; // 256 世界 / 220 段 ≈ 1.16m 一格，海岸线更顺滑
 
 /** 缓变色彩场：低频正弦叠加，形成有机的草地色斑（区别于逐面抖动） */
 function fieldNoise(x: number, z: number): number {
@@ -17,10 +17,10 @@ function fieldNoise(x: number, z: number): number {
 /** 地形配色：沙滩 → 浅草地 → 深草地 的柔和渐变 */
 function terrainColor(h: number, x: number, z: number, out: THREE.Color) {
   const n = fieldNoise(x, z); // 有机色斑
-  if (h < WATER_LEVEL + 0.55) {
-    // 沙滩（略带湿度渐变：越靠近水越深）
-    const wet = Math.min(1, Math.max(0, (WATER_LEVEL + 0.55 - h) / 0.9));
-    out.setRGB(0.91 - wet * 0.06, 0.84 - wet * 0.08, 0.66 - wet * 0.1);
+  if (h < WATER_LEVEL + 2.2) {
+    // 沙滩（带宽约 2.2m 高度差，岛岸缓坡上视觉约 3~5m；湿度渐变：越靠近水越深）
+    const wet = Math.min(1, Math.max(0, (WATER_LEVEL + 2.2 - h) / 2.6));
+    out.setRGB(0.91 - wet * 0.07, 0.84 - wet * 0.1, 0.66 - wet * 0.12);
     return;
   }
   // 高度 + 低频噪声共同决定草色深浅（清新但饱和的糖果绿）
@@ -58,9 +58,9 @@ export function buildTerrain(size: number): THREE.Mesh {
   return mesh;
 }
 
-/** 水面（整图平面，轻微起伏动画在 game 循环里做） */
+/** 水面（大幅越出地图边界 → 远处雾化成海平线；轻微起伏动画在 game 循环里做） */
 export function buildWater(size: number, waterLevel: number): THREE.Mesh {
-  const geo = new THREE.PlaneGeometry(size * 1.02, size * 1.02, 1, 1);
+  const geo = new THREE.PlaneGeometry(size * 6, size * 6, 1, 1);
   const mat = new THREE.MeshLambertMaterial({
     color: "#7ec4e8",
     transparent: true,

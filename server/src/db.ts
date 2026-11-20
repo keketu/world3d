@@ -158,6 +158,11 @@ export class Db {
     this.onDeleteObject?.(id);
   }
 
+  /** 搬移造物（出生区迁移时办公楼跟过来） */
+  updateObjectPos(id: string, x: number, z: number, rotY: number) {
+    this.db.prepare(`UPDATE objects SET x=?, z=?, rotY=? WHERE id=?`).run(x, z, rotY, id);
+  }
+
   /** 读取单条造物行（存证验章以账本为准，不用内存副本——才能发现外部篡改） */
   getObjectRow(id: string): { id: string; creatorId: string; creatorName: string; createdAt: number } | null {
     return (

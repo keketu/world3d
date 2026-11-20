@@ -139,8 +139,10 @@ export function startGame(container: HTMLElement): GameHandle {
   scene.add(selfAvatar.group);
 
   // ---------- 相机 ----------
-  let camYaw = Math.PI * 0.3;
-  let camPitch = 0.72;
+  // 默认面向南（海的方向，出生点在南岸）：明信片式开场 —— 海 + 天空 + 身后樱花
+  let camYaw = Math.PI;
+  // 默认低俯角（~24°）：能看见天空/海/远景和角色半侧脸，画面有纵深氛围；用户滚轮/双指可自由调
+  let camPitch = 0.42;
   let camDist = 13;
   let viewMode: "third" | "first" = "third";
 
@@ -650,7 +652,7 @@ export function startGame(container: HTMLElement): GameHandle {
       target: { x: p.x, y: p.y, z: p.z, rotY: p.rotY },
       info: p,
     });
-    setLabel(`tag-${p.id}`, off ? `💤 ${p.name}` : p.name, p.x, p.y + 1.4, p.z, off ? "nameTag offline" : "nameTag");
+    setLabel(`tag-${p.id}`, off ? `💤 ${p.name}` : p.name, p.x, p.y + 1.72, p.z, off ? "nameTag offline" : "nameTag");
   };
   clientWorld.remoteRemover = (id: string) => {
     const r = clientWorld.remotes.get(id);
@@ -846,7 +848,7 @@ export function startGame(container: HTMLElement): GameHandle {
     selfAvatar.group.position.set(self.x, self.y, self.z);
     selfAvatar.group.rotation.y = self.rotY;
     animateAvatar(selfAvatar, possessing ? "idle" : self.anim, time);
-    if (!possessing) setLabel("tag-self", st.selfName || "我", self.x, self.y + 1.4, self.z, "nameTag self");
+    if (!possessing) setLabel("tag-self", st.selfName || "我", self.x, self.y + 1.72, self.z, "nameTag self");
     else removeLabel("tag-self");
 
     // 4. 远端玩家插值
@@ -866,7 +868,7 @@ export function startGame(container: HTMLElement): GameHandle {
         setAvatarOffline(av, off);
       }
       animateAvatar(av, !off && (dist > 0.1 || r.info.anim === "walk") ? "walk" : "idle", time);
-      setLabel(`tag-${r.info.id}`, off ? `💤 ${r.info.name}` : r.info.name, g.position.x, g.position.y + 1.4, g.position.z, off ? "nameTag offline" : "nameTag");
+      setLabel(`tag-${r.info.id}`, off ? `💤 ${r.info.name}` : r.info.name, g.position.x, g.position.y + 1.72, g.position.z, off ? "nameTag offline" : "nameTag");
     }
 
     // 5. 水面轻微波动
@@ -926,9 +928,10 @@ export function startGame(container: HTMLElement): GameHandle {
     } else {
       const [dMin, dMax] = roomHost.cameraDistRange();
       let effDist = Math.max(dMin, Math.min(dMax, camDist));
+      // 俯角直接由 camPitch 决定（防钻地由下方地形钳制保证）——低角度能看到天空/海/地平线
       const camDir = new THREE.Vector3(
         Math.sin(camYaw) * Math.cos(camPitch),
-        Math.sin(camPitch) + 0.22,
+        Math.sin(camPitch),
         Math.cos(camYaw) * Math.cos(camPitch)
       ).normalize();
       // 视线穿过房屋/办公楼时把相机拉到建筑前，避免相机进楼穿模透视
@@ -1069,7 +1072,14 @@ export function startGame(container: HTMLElement): GameHandle {
       self.y = p.y;
       self.z = p.z;
       camTarget.set(p.x, p.y + 1.2, p.z);
-      camCur.set(p.x + 10, p.y + 15, p.z + 12);
+      // 出生视角自动面朝「岛外」（海岸方向）：出生点在临海环带上，背靠岛心看海
+      const c = (clientWorld.meta?.size ?? 256) / 2;
+      const dx = p.x - c;
+      const dz = p.z - c;
+      const len = Math.hypot(dx, dz) || 1;
+      camYaw = Math.atan2(-dx / len, -dz / len);
+      // 初始机位放在玩家身后（跟 camYaw 同向），避免第一帧从别处飘过来
+      camCur.set(p.x + Math.sin(camYaw) * 9, p.y + 5.5, p.z + Math.cos(camYaw) * 9);
     },
   };
 }

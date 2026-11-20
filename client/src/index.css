@@ -97,7 +97,8 @@ input:focus-visible {
 .joinOverlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(165deg, rgba(94, 66, 58, 0.42), rgba(126, 82, 96, 0.36));
+  /* 奶油和果子暖调遮罩：与登录卡同系，不再是死灰 */
+  background: linear-gradient(165deg, rgba(250, 233, 214, 0.55), rgba(247, 205, 214, 0.5) 55%, rgba(216, 236, 219, 0.5));
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
@@ -375,6 +376,34 @@ input:focus-visible {
 
 .connPill.off {
   color: var(--ink-faint);
+}
+
+/* 人数胶囊内嵌的连接状态小点（替代独立 connPill，顶栏更干净） */
+.playersPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.playersPill .connDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.playersPill .connDot.on {
+  background: var(--matcha);
+  box-shadow: 0 0 0 3px rgba(127, 185, 138, 0.25);
+}
+
+.playersPill .connDot.off {
+  background: var(--ink-faint);
+}
+
+.playersPill.off {
+  color: var(--ink-faint);
+  border-style: dashed;
 }
 
 .toggleBtn {
