@@ -987,6 +987,17 @@ input:focus-visible {
   cursor: pointer;
 }
 
+/* 像素头像：名牌内的 Q 版像素脸 */
+.nameTag img.pixelFace {
+  image-rendering: pixelated;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: -3px;
+  box-shadow: 0 0 0 1px rgba(40, 30, 20, 0.18);
+}
+
 .nameTag.self {
   background: rgba(242, 145, 169, 0.92);
   border-color: rgba(225, 112, 141, 0.8);

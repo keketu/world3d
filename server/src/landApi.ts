@@ -166,11 +166,27 @@ export function registerLandApi(app: Express, deps: LandDeps) {
     res.json({ ok: true });
   });
 
-  // 调试/验证用：某个坐标的地块查询
+  /** 坐标 → 地块与「观看者」的建造许可（摆道具落点预览用；带 token 则返回 viewer 视角） */
   app.get("/api/land/at", (req, res) => {
     const x = Number(req.query.x);
     const z = Number(req.query.z);
     const plotId = plotIdAt(x, z);
-    res.json({ ok: true, plotId, plot: plotId ? db.getPlot(plotId) : null });
+    const plot = plotId ? db.getPlot(plotId) : null;
+    // 带有效 token 时额外给 viewer 视角：canBuild 与一致的原因文案
+    const header = req.headers.authorization;
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+    const payload = token ? verifyToken(token) : null;
+    const user = payload ? db.findUserById(payload.uid) : null;
+    let viewer: { canBuild: boolean; reason: string } | null = null;
+    if (plotId) {
+      const ownerKey = user ? `u:${user.id}` : null;
+      const isOwner = !!plot && !!ownerKey && plot.ownerId === ownerKey;
+      const isAdmin = !!user && !user.banned && user.role === "admin";
+      const isGov = !!user && !!db.getGovernor(plot?.state ?? "")?.userId === true && db.getGovernor(plot?.state ?? "")?.userId === user!.id;
+      if (!plot) viewer = { canBuild: false, reason: "这块地还没批——在「🗺 土地」面板申请后就能盖了" };
+      else if (isOwner || isAdmin || isGov) viewer = { canBuild: true, reason: "" };
+      else viewer = { canBuild: false, reason: `该地块已被 ${plot.ownerName} 认领` };
+    }
+    res.json({ ok: true, plotId, plot, viewer });
   });
 }

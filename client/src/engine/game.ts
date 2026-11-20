@@ -1,8 +1,9 @@
 // 游戏引擎：低模世界渲染循环、本地玩家、道具交互、标签系统、远端玩家
 import * as THREE from "three";
-import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, isBuildingKind, buildingSize, plotBounds, propIcon, propLabel } from "@world3d/shared";
+import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, isBuildingKind, isPropCollidable, buildingSize, buildingRect, plotIdAt, plotBounds, propIcon, propLabel } from "@world3d/shared";
 import { clientWorld } from "./world";
 import { buildTerrain } from "./terrain";
+import { pixelAvatarDataURL } from "../scene/pixelAvatar";
 import { buildProp } from "./props";
 import { createAvatar, animateAvatar, setAvatarOffline, Avatar } from "../scene/avatar";
 import { useWorld, ControlMode } from "../state/store";
@@ -60,7 +61,8 @@ export function startGame(container: HTMLElement): GameHandle {
   renderer.setSize(container.clientWidth, container.clientHeight);
   container.appendChild(renderer.domElement);
 
-  scene.add(new THREE.HemisphereLight(0xe8f5ff, 0xa8c48a, 1.0));
+  const hemi = new THREE.HemisphereLight(0xe8f5ff, 0xa8c48a, 1.0);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff0da, 1.1);
   sun.position.set(60, 90, 30);
   scene.add(sun);
@@ -597,6 +599,78 @@ export function startGame(container: HTMLElement): GameHandle {
   destArrow.visible = false;
   scene.add(destArrow);
 
+  // ---------- 摆道具落点预览：选中道具时压暗地图 + 绿/红落点框 + 原因提示 ----------
+  const placePreview = new THREE.Group();
+  placePreview.visible = false;
+  scene.add(placePreview);
+  const previewRect = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-1, 0, -1), new THREE.Vector3(1, 0, -1), new THREE.Vector3(1, 0, 1), new THREE.Vector3(-1, 0, 1),
+    ]),
+    new THREE.LineBasicMaterial({ color: 0x7ddc8b, transparent: true, opacity: 0.95 })
+  );
+  const previewCircle = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(
+      Array.from({ length: 33 }, (_, i) => {
+        const a = (i / 32) * Math.PI * 2;
+        return new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+      })
+    ),
+    new THREE.LineBasicMaterial({ color: 0x7ddc8b, transparent: true, opacity: 0.95 })
+  );
+  placePreview.add(previewRect, previewCircle);
+  /** 压暗状态：true = 当前处于摆道具模式（灯光降档），false = 已还原 */
+  let dimmed = false;
+  const LIGHT_DIM = { sun: 0.5, hemi: 0.45, amb: 0.16 };
+  const LIGHT_FULL = { sun: 1.1, hemi: 1.0, amb: 0.28 };
+  const setDim = (v: boolean) => {
+    if (dimmed === v) return;
+    dimmed = v;
+    const t = v ? LIGHT_DIM : LIGHT_FULL;
+    sun.intensity = t.sun;
+    hemi.intensity = t.hemi;
+    scene.children.find((c) => c instanceof THREE.AmbientLight)!.intensity = t.amb;
+  };
+  /** 地块许可缓存（跨图块边界才重新请求） */
+  const landAtCache = new Map<string, { canBuild: boolean; reason: string; at: number }>();
+  let landAtLast = 0;
+  const LAND_AT_TTL = 30_000; // 审批通过后 30s 内缓存自动失效
+  /** 落点是否可放（本地规则 + 地块权限缓存），返回原因 */
+  function placementCheck(x: number, z: number, kind: string): { ok: boolean; reason: string } {
+    const W = clientWorld.meta?.size ?? 256;
+    if (x < 1.2 || z < 1.2 || x > W - 1.2 || z > W - 1.2) return { ok: false, reason: "太靠地图边缘了" };
+    if (!clientWorld.isLand(x, z)) return { ok: false, reason: "水里放不了" };
+    // 间距（本地近似）：与任意已有造物的碰撞形状保持最小间距
+    const size = buildingSize(kind, {});
+    const halfW = isBuildingKind(kind) ? size.w / 2 + 0.3 : 0.9;
+    const halfD = isBuildingKind(kind) ? size.d / 2 + 0.3 : 0.9;
+    for (const o of clientWorld.objects.values()) {
+      if (isBuildingKind(o.kind)) {
+        const rect = buildingRect(o.kind, o.params, o.scale || 1);
+        if (!rect) continue;
+        const c = Math.cos(o.rotY);
+        const s2 = Math.sin(o.rotY);
+        const dx = o.x - x;
+        const dz = o.z - z;
+        const lx = dx * c - dz * s2;
+        const lz = dx * s2 + dz * c;
+        const ox = rect.hw + 0.34 + halfW - 0.3;
+        const oz = rect.hd + 0.34 + halfD - 0.3;
+        if (Math.abs(lx) < ox && Math.abs(lz) < oz) return { ok: false, reason: "离其他造物太近了" };
+      } else {
+        const cr = isPropCollidable(o.kind) * (o.scale || 1) * 0.8 + 0.32 + halfW - 0.3;
+        if (Math.hypot(o.x - x, o.z - z) < cr) return { ok: false, reason: "离其他造物太近了" };
+      }
+    }
+    // 地块权限（九州地块须归属本人；公共区放行）——用缓存的 viewer 视角结果
+    const pid = plotIdAt(x, z);
+    if (pid) {
+      const c = landAtCache.get(pid);
+      if (c && !c.canBuild) return { ok: false, reason: c.reason };
+    }
+    return { ok: true, reason: "这里可以放" };
+  }
+
   // ---------- 土地边界线（🗺 土地面板打开时显示 24 块地归属着色） ----------
   const landLines = new THREE.Group();
   landLines.visible = false;
@@ -733,7 +807,7 @@ export function startGame(container: HTMLElement): GameHandle {
       target: { x: p.x, y: p.y, z: p.z, rotY: p.rotY },
       info: p,
     });
-    setLabel(`tag-${p.id}`, off ? `💤 ${p.name}` : p.name, p.x, p.y + 1.72, p.z, off ? "nameTag offline" : "nameTag");
+    setLabel(`tag-${p.id}`, off ? `💤 ${p.name}` : `<img class="pixelFace" src="${pixelAvatarDataURL(p.id)}" alt=""><span>${p.name}</span>`, p.x, p.y + 1.72, p.z, off ? "nameTag offline" : "nameTag");
   };
   clientWorld.remoteRemover = (id: string) => {
     const r = clientWorld.remotes.get(id);
@@ -960,7 +1034,7 @@ export function startGame(container: HTMLElement): GameHandle {
     selfAvatar.group.position.set(self.x, self.y, self.z);
     selfAvatar.group.rotation.y = self.rotY;
     animateAvatar(selfAvatar, possessing ? "idle" : self.anim, time);
-    if (!possessing) setLabel("tag-self", st.selfName || "我", self.x, self.y + 1.72, self.z, "nameTag self");
+    if (!possessing) setLabel("tag-self", `<img class="pixelFace" src="${pixelAvatarDataURL(st.selfId || "self")}" alt=""><span>${st.selfName || "我"}</span>`, self.x, self.y + 1.72, self.z, "nameTag self");
     else removeLabel("tag-self");
 
     // 4. 远端玩家插值
@@ -980,7 +1054,7 @@ export function startGame(container: HTMLElement): GameHandle {
         setAvatarOffline(av, off);
       }
       animateAvatar(av, !off && (dist > 0.1 || r.info.anim === "walk") ? "walk" : "idle", time);
-      setLabel(`tag-${r.info.id}`, off ? `💤 ${r.info.name}` : r.info.name, g.position.x, g.position.y + 1.72, g.position.z, off ? "nameTag offline" : "nameTag");
+      setLabel(`tag-${r.info.id}`, off ? `💤 ${r.info.name}` : `<img class="pixelFace" src="${pixelAvatarDataURL(r.info.id)}" alt=""><span>${r.info.name}</span>`, g.position.x, g.position.y + 1.72, g.position.z, off ? "nameTag offline" : "nameTag");
     }
 
     // 土地边界线随面板开关显隐
@@ -1009,6 +1083,48 @@ export function startGame(container: HTMLElement): GameHandle {
         hoverTooltip.style.left = `${hoverScreen.x + 14}px`;
         hoverTooltip.style.top = `${hoverScreen.y + 10}px`;
       }
+    }
+
+    // 6b. 摆道具落点预览（选中非空手道具：压暗地图 + 落点框 + 原因提示）
+    if (roomHost.active) setDim(false); // 房间内还原灯光
+    const sel = HOTBAR_PROPS[st.hotbarIndex];
+    const placing = !!sel && sel.kind !== "hand" && st.joined && !roomHost.active && !!hoverTarget && hoverTarget.ground;
+    setDim(placing);
+    placePreview.visible = placing;
+    if (placing && hoverTarget) {
+      const px2 = hoverTarget.point.x;
+      const pz2 = hoverTarget.point.z;
+      const kind = sel!.kind;
+      const size = buildingSize(kind, {});
+      const chk = placementCheck(px2, pz2, kind);
+      previewRect.visible = isBuildingKind(kind);
+      previewCircle.visible = !isBuildingKind(kind);
+      const col = chk.ok ? 0x7ddc8b : 0xe08a8a;
+      (previewRect.material as THREE.LineBasicMaterial).color.setHex(col);
+      (previewCircle.material as THREE.LineBasicMaterial).color.setHex(col);
+      previewRect.position.set(px2, hoverTarget.point.y + 0.12, pz2);
+      previewRect.rotation.y = camYaw;
+      previewRect.scale.set(size.w / 2 + 0.3, 1, size.d / 2 + 0.3);
+      previewCircle.position.copy(previewRect.position);
+      // 地块权限缓存：悬停地块变化时节流拉取（带 token = viewer 视角）
+      const pid = plotIdAt(px2, pz2);
+      const cached = pid ? landAtCache.get(pid) : null;
+      const cacheOk = cached && Date.now() - cached.at < LAND_AT_TTL;
+      if (pid && !cacheOk && Date.now() - landAtLast > 500) {
+        landAtLast = Date.now();
+        const headers: Record<string, string> = st.auth.token ? { Authorization: `Bearer ${st.auth.token}` } : {};
+        fetch(`/api/land/at?x=${px2.toFixed(1)}&z=${pz2.toFixed(1)}`, { headers })
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.plotId) landAtCache.set(d.plotId, { canBuild: !!d.viewer?.canBuild, reason: d.viewer?.reason ?? "", at: Date.now() });
+          })
+          .catch(() => {});
+      }
+      // 原因提示（覆盖 hover 溯源文案）
+      hoverTooltip.innerHTML = `<b>${chk.ok ? "✅ 可以放" : "🚫 " + chk.reason}</b><span class="t">${sel!.label} · 点地放置</span>`;
+      hoverTooltip.style.display = "";
+      hoverTooltip.style.left = `${hoverScreen.x + 14}px`;
+      hoverTooltip.style.top = `${hoverScreen.y + 10}px`;
     }
 
     // 7. 相机（第三人称环绕 / 第一人称眼位，store 驱动可切换）
