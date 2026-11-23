@@ -6,6 +6,7 @@ import { createAvatar, compactAvatar, animateAvatar, Avatar } from "../avatar";
 import { mergeParts } from "../mergeParts";
 import * as Kit from "./townKit";
 import type { TownPlan } from "./townPlan";
+import { clientWorld } from "../../engine/world";
 
 /** 车道中心距路中心 */
 const LANE = 1.6;
@@ -20,7 +21,7 @@ export interface TownLife {
   update(dt: number, time: number, phase: { ew: boolean; ns: boolean }, people: Array<{ x: number; z: number }>): void;
   stats: { cars: number; peds: number };
   /** 调试：车辆与居民位置采样 */
-  sample(): { cars: Array<{ x: number; z: number; v: number }>; peds: Array<{ x: number; z: number }> };
+  sample(): { cars: Array<{ x: number; z: number; v: number; rot: number }>; peds: Array<{ x: number; z: number }> };
   /** 附近居民（玩家绕人用）：返回半径内最近的一位 */
   pedNear(x: number, z: number, r: number): { x: number; z: number } | null;
 }
@@ -71,14 +72,62 @@ function loopPoint(lp: Loop, s: number, out: PathPoint): PathPoint {
   return out;
 }
 
-/** 绕一块被道路围住的区域顺时针行驶（右侧通行），区域外沿 [xa..xb]×[za..zb] */
-function ringLoop(xa: number, xb: number, za: number, zb: number): Loop {
-  return makeLoop([
-    [xb - LANE, zb - LANE],
-    [xa + LANE, zb - LANE],
-    [xa + LANE, za + LANE],
-    [xb - LANE, za + LANE],
-  ]);
+/**
+ * 绕一块被道路围住的区域顺时针行驶（右侧通行，车道靠街区一侧）。
+ * 转角走圆弧（直线段 + 90° 圆弧相切）——直角转弯会让车看起来在平移。
+ * 圆弧半径自适应：逐档试到不压建筑为止。
+ */
+function ringLoop(xa: number, xb: number, za: number, zb: number, blocked?: (x: number, z: number) => boolean, lane: 1 | -1 = 1): Loop {
+  // lane=+1 外扩（顺时针右手通行的车道，靠近路的外侧）；lane=-1 内缩（对向车道）
+  const x0 = xa - LANE * lane;
+  const x1 = xb + LANE * lane;
+  const z0 = za - LANE * lane;
+  const z1 = zb + LANE * lane;
+  // 顺时针四个转角：(x1,z1) → (x0,z1) → (x0,z0) → (x1,z0)
+  // 顺时针四个转角：南边往 -x → 西边往 -z → 北边往 +x → 东边往 +z
+  // 每个转角是 90° 圆弧（与两条直路相切）：圆心在角内侧 r 处，角度沿行进方向递增
+  // 顺时针角序（外扩车道）：西南→西北→东北→东南；逆时针（内缩对向车道）把角序反过来
+  const CW = [
+    { cx: x0, cz: z1, a0: Math.PI / 2, a1: Math.PI, inX: 1, inZ: -1 },
+    { cx: x0, cz: z0, a0: Math.PI, a1: Math.PI * 1.5, inX: 1, inZ: 1 },
+    { cx: x1, cz: z0, a0: Math.PI * 1.5, a1: Math.PI * 2, inX: -1, inZ: 1 },
+    { cx: x1, cz: z1, a0: 0, a1: Math.PI / 2, inX: -1, inZ: -1 },
+  ];
+  const corners =
+    lane === 1
+      ? CW
+      : [
+          { cx: x1, cz: z1, a0: Math.PI * 1.5, a1: Math.PI * 2, inX: -1, inZ: -1 },
+          { cx: x1, cz: z0, a0: Math.PI, a1: Math.PI * 1.5, inX: -1, inZ: 1 },
+          { cx: x0, cz: z0, a0: Math.PI / 2, a1: Math.PI, inX: 1, inZ: 1 },
+          { cx: x0, cz: z1, a0: 0, a1: Math.PI / 2, inX: 1, inZ: -1 },
+        ];
+  const radii = [9, 7, 5, 3.5, 2.5];
+  for (const r of radii) {
+    const pts: Array<[number, number]> = [];
+    let ok = true;
+    for (const c of corners) {
+      const ccx = c.cx + c.inX * r;
+      const ccz = c.cz + c.inZ * r;
+      for (let i = 0; i <= 7; i++) {
+        const a = c.a0 + (c.a1 - c.a0) * (i / 7);
+        const px = ccx + Math.cos(a) * r;
+        const pz = ccz + Math.sin(a) * r;
+        if (blocked && blocked(px, pz)) {
+          ok = false;
+          break;
+        }
+        pts.push([px, pz]);
+      }
+      if (!ok) break;
+    }
+    if (ok && pts.length) return makeLoop(pts);
+  }
+  // 都不行就用直角环（退回旧行为）
+  const fb = lane === 1
+    ? [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+    : [[x0, z1], [x1, z1], [x1, z0], [x0, z0]];
+  return makeLoop(fb as Array<[number, number]>);
 }
 
 export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: (x: number, z: number) => number }): TownLife {
@@ -99,10 +148,18 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
   };
 
   // ---------- 车辆：9 个街区各绕一圈 + 一辆公交沿外环 ----------
-  const loops: Loop[] = [];
+  const solidAt = (x: number, z: number) => clientWorld.blockedAt(x, z);
+  // 每个街区两条车道：外扩（顺时针右手通行）+ 内缩（对向车道，逆时针）——同一条路上双向分流
+  const cwLoops: Loop[] = [];
+  const ccwLoops: Loop[] = [];
   for (let bi = 1; bi <= 3; bi++) {
     for (let bj = 1; bj <= 3; bj++) {
-      loops.push(ringLoop(ROAD_LINES[bi - 1], ROAD_LINES[bi], ROAD_LINES[bj - 1], ROAD_LINES[bj]));
+      const xa = ROAD_LINES[bi - 1];
+      const xb = ROAD_LINES[bi];
+      const za = ROAD_LINES[bj - 1];
+      const zb = ROAD_LINES[bj];
+      cwLoops.push(ringLoop(xa, xb, za, zb, solidAt, 1));
+      ccwLoops.push(ringLoop(xa, xb, za, zb, solidAt, -1));
     }
   }
   interface Car {
@@ -111,20 +168,33 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
     s: number;
     v: number;
     vmax: number;
+    /** 当前朝向（平滑插值，不瞬间跳变） */
+    heading: number;
+    /** 行驶方向：1 = 顺时针，-1 = 逆时针（对向车流） */
+    dir: 1 | -1;
   }
   const cars: Car[] = [];
-  const addCar = (loop: Loop, s: number, geo: THREE.BufferGeometry, vmax: number) => {
+  const addCar = (loop: Loop, s: number, geo: THREE.BufferGeometry, vmax: number, dir: 1 | -1 = 1) => {
     const mesh = new THREE.Mesh(geo, carMat);
     mesh.castShadow = true;
     group.add(mesh);
-    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax });
+    const p0 = loopPoint(loop, s, { x: 0, z: 0, dx: 0, dz: 0, i: 0 });
+    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax, heading: Math.atan2(p0.dx * dir, p0.dz * dir), dir });
   };
-  loops.forEach((lp, i) => {
+  cwLoops.forEach((lp, i) => {
     const color = i % Kit.CAR_COLORS.length;
     const variant = rng() < 0.32 ? 1 : 0;
-    addCar(lp, rng() * lp.total, vehicleGeo(`car-${color}-${variant}`, (p) => Kit.car(p, Kit.CAR_COLORS[color], variant)), 4.6 + rng() * 1.6);
+    const geo = vehicleGeo(`car-${color}-${variant}`, (p) => Kit.car(p, Kit.CAR_COLORS[color], variant));
+    addCar(lp, rng() * lp.total, geo, 4.6 + rng() * 1.6, 1);
+    // 对向车道也放一辆（部分街区）
+    if (i % 2 === 0) {
+      const c2 = (i + 3) % Kit.CAR_COLORS.length;
+      const g2 = vehicleGeo(`car-${c2}-${variant}`, (p) => Kit.car(p, Kit.CAR_COLORS[c2], variant));
+      addCar(ccwLoops[i], rng() * ccwLoops[i].total, g2, (4.6 + rng() * 1.6) * 0.92, -1);
+    }
   });
-  addCar(ringLoop(ROAD_LINES[0], ROAD_LINES[3], ROAD_LINES[0], ROAD_LINES[3]), 40, vehicleGeo("bus", (p) => Kit.bus(p, 0x53a8c8)), 5.6);
+  // 外环公交（沿最外圈道路）
+  addCar(ringLoop(ROAD_LINES[0], ROAD_LINES[3], ROAD_LINES[0], ROAD_LINES[3], solidAt, 1), 40, vehicleGeo("bus", (p) => Kit.bus(p, 0x53a8c8)), 5.6);
 
   // ---------- 居民 ----------
   interface Ped {
@@ -193,7 +263,13 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
     },
     sample() {
       return {
-        cars: cars.map((c) => ({ x: Math.round(c.mesh.position.x * 10) / 10, z: Math.round(c.mesh.position.z * 10) / 10, v: Math.round(c.v * 100) / 100 })),
+        cars: cars.map((c) => ({
+          x: Math.round(c.mesh.position.x * 10) / 10,
+          z: Math.round(c.mesh.position.z * 10) / 10,
+          v: Math.round(c.v * 100) / 100,
+          /** 真实渲染朝向（弧度）——用于验证转向是否平滑 */
+          rot: Math.round(c.mesh.rotation.y * 1000) / 1000,
+        })),
         peds: peds.map((p) => ({ x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 })),
       };
     },
@@ -204,7 +280,7 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
         const alongX = Math.abs(pt.dx) > 0.5;
         const axis = alongX ? "ew" : "ns";
         const posAlong = alongX ? pt.x : pt.z;
-        const dir = alongX ? pt.dx : pt.dz;
+        const dir = (alongX ? pt.dx : pt.dz) * c.dir;
         let target = c.vmax;
         let brakeDist = Infinity;
         if (!(axis === "ew" ? phase.ew : phase.ns)) {
@@ -225,8 +301,10 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
         for (const ped of peds) avoid(ped.x, ped.z);
         for (const o of cars) {
           if (o === c || o.loop !== c.loop) continue;
-          const gap = ((o.s - c.s + c.loop.total) % c.loop.total) - 4.6;
-          if (gap > 0 && gap < 10) brakeDist = Math.min(brakeDist, gap - 3.2);
+          if (o.dir === c.dir) {
+            const gap = ((o.s - c.s + c.loop.total) % c.loop.total) - 4.6;
+            if (gap > 0 && gap < 10) brakeDist = Math.min(brakeDist, gap - 3.2);
+          }
         }
         if (brakeDist < Infinity) {
           if (brakeDist < 0.25) target = 0;
@@ -234,9 +312,13 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
         }
         c.v += Math.max(-8 * dt, Math.min(2.6 * dt, target - c.v));
         if (c.v < 0.02 && target === 0) c.v = 0;
-        c.s += c.v * dt;
+        c.s += c.v * dt * c.dir;
         loopPoint(c.loop, c.s, pt);
-        c.mesh.rotation.y = Math.atan2(pt.dx, pt.dz);
+        // 朝向平滑：朝路径方向渐变（瞬间跳变看着像滑行）
+        const want = Math.atan2(pt.dx * c.dir, pt.dz * c.dir);
+        let diff = ((want - c.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        c.heading += diff * Math.min(1, dt * 7);
+        c.mesh.rotation.y = c.heading;
         c.mesh.position.set(pt.x, opts.heightAt(pt.x, pt.z), pt.z);
       }
 
