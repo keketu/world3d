@@ -259,6 +259,8 @@ export function startGame(container: HTMLElement): GameHandle {
   // 默认低俯角（~24°）：能看见天空/海/远景和角色半侧脸，画面有纵深氛围；用户滚轮/双指可自由调
   let camPitch = 0.62;
   let camDist = 13;
+  /** 相机实际距离的平滑值（建筑裁剪时避免突变） */
+  let camDistSmooth = 13;
   let viewMode: "third" | "first" = "third";
 
   // ---------- 输入（鼠标/触摸统一 Pointer Events；行走 = 点击地面） ----------
@@ -428,12 +430,14 @@ export function startGame(container: HTMLElement): GameHandle {
         if (pts.length === 2) {
           const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
           if (lastPinch > 0) {
+            // 双指缩放：按比例缩放（线性增量会一合就大幅跳变）
+            const ratio = d / lastPinch;
             if (viewMode === "first") {
               // 第一人称：捏合变焦（FOV）
-              camera.fov = Math.max(42, Math.min(80, camera.fov + (d - lastPinch) * 0.12));
+              camera.fov = Math.max(42, Math.min(80, camera.fov / ratio));
               camera.updateProjectionMatrix();
             } else {
-              camDist = Math.max(5, Math.min(30, camDist - (d - lastPinch) * 0.06));
+              camDist = Math.max(5, Math.min(30, camDist / ratio));
             }
           }
           lastPinch = d;
@@ -531,13 +535,22 @@ export function startGame(container: HTMLElement): GameHandle {
     }
   };
 
+  // 滚轮缩放：阻止页面缩放（否则整个界面会跟着忽大忽小）+ 触控板细调不跳格
+  let lastWheelTs = 0;
   const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const now = performance.now();
+    if (now - lastWheelTs < 80) return; // 惯性滚动期间不连续改
+    lastWheelTs = now;
+    const mag = Math.abs(e.deltaY);
+    // 鼠标滚轮一格 deltaY≈100；触控板是连续小值 → 小步细调
+    const step = mag >= 50 ? Math.sign(e.deltaY) * 1.6 : Math.sign(e.deltaY) * 0.45;
     if (viewMode === "first") {
       // 第一人称：滚轮变焦（FOV）
-      camera.fov = Math.max(42, Math.min(80, camera.fov + Math.sign(e.deltaY) * 4));
+      camera.fov = Math.max(42, Math.min(80, camera.fov - step * 2.4));
       camera.updateProjectionMatrix();
     } else {
-      camDist = Math.max(5, Math.min(30, camDist + Math.sign(e.deltaY) * 1.5));
+      camDist = Math.max(5, Math.min(30, camDist + step));
     }
   };
   const onContext = (e: Event) => e.preventDefault();
@@ -557,7 +570,7 @@ export function startGame(container: HTMLElement): GameHandle {
     window.addEventListener("mousemove", (e) => onPointerMove(norm(e)));
     window.addEventListener("mouseup", (e) => onPointerUp(norm(e)));
   }
-  dom.addEventListener("wheel", onWheel, { passive: true });
+  dom.addEventListener("wheel", onWheel, { passive: false });
   dom.addEventListener("contextmenu", onContext);
   // 鼠标是否在画布内（自由转向 + 边缘锁定用）
   dom.addEventListener("pointerenter", (e) => {
@@ -598,7 +611,7 @@ export function startGame(container: HTMLElement): GameHandle {
     const personRoots: THREE.Object3D[] = [];
     for (const [, r] of clientWorld.remotes) personRoots.push((r.group as Avatar).group);
     for (const m of roomHost.personMeshes()) personRoots.push(m);
-    raycaster.far = roomHost.active ? 60 : 32;
+    raycaster.far = roomHost.active ? 60 : 90; // 俯视下屏幕上方是很远的地面，32m 会让远处点击落空
     const personHits = personRoots.length ? raycaster.intersectObjects(personRoots, true) : [];
     const personHit = personHits.find((h) => personOf(h.object)) ?? null;
     const personInfo = personHit ? personOf(personHit.object) : undefined;
@@ -1263,6 +1276,9 @@ export function startGame(container: HTMLElement): GameHandle {
           }
         }
       }
+      // 被建筑裁剪时距离会突变（走动时射线擦过楼角就跳一下）→ 平滑收敛，画面不忽远忽近
+      camDistSmooth += (effDist - camDistSmooth) * Math.min(1, dt * 6);
+      effDist = camDistSmooth;
       const desired = camTarget.clone().addScaledVector(camDir, effDist);
       if (!roomHost.active) {
         // 户外：相机不钻地；房间内地面 y=0，不适用地形钳制
