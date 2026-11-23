@@ -11,14 +11,15 @@ const m2p = (v: number) => v * TEX_PX_PER_M;
 /** 阳光都市地面配色 */
 const COLORS = {
   grass: "#8fbc6f",       // 外圈草绿
-  park: "#85b96a",        // 公园 / 绿带
-  sidewalk: "#d9d2c6",    // 人行道暖灰
+  park: "#7fb35f",        // 公园 / 绿带（深一档）
+  parkDark: "#6ea354",
+  sidewalk: "#cfc8ba",    // 人行道浅灰
   road: "#57534e",        // 暖色沥青
   laneDash: "rgba(246,240,228,0.9)",
-  plaza: "#e8d2a8",       // 广场暖铺装
-  plazaRing: "#d9bd92",
-  curb: "#b9b0a2",
-  lotTints: ["#e8dfc9", "#e3d5bb", "#ddcfb2", "#e6d9bf", "#e9dcc3"],
+  plaza: "#c9c3b6",       // 广场石砖灰
+  plazaRing: "#b5afa2",
+  curb: "#a9a294",
+  lotTints: ["#93c273", "#8ab96a", "#9dc97f", "#88b566", "#97c077"], // 街区=草地绿（深浅微差）
 };
 
 function blockTint(id: string): string {
@@ -84,9 +85,18 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
         (bounds[j] + bounds[j + 1]) / 2
       );
       if (id === "2-2" || id === "2-3") {
-        // 市民广场（两块 + 中央大道贯穿）
+        // 市民广场（两块 + 中央大道贯穿）：灰色石砖
         g.fillStyle = COLORS.plaza;
         g.fillRect(x0, z0, w, h);
+        // 砖缝网格（4m 方格）
+        g.strokeStyle = "rgba(120,112,96,0.4)";
+        g.lineWidth = m2p(0.08);
+        for (let t = bounds[i]; t <= bounds[i + 1]; t += 4) {
+          g.beginPath(); g.moveTo(m2p(t), z0); g.lineTo(m2p(t), z0 + h); g.stroke();
+        }
+        for (let t = bounds[j]; t <= bounds[j + 1]; t += 4) {
+          g.beginPath(); g.moveTo(x0, m2p(t)); g.lineTo(x0 + w, m2p(t)); g.stroke();
+        }
         // 同心环装饰（以各自块中心）
         const cx = x0 + w / 2;
         const cz = z0 + h / 2;
@@ -126,9 +136,17 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
         g.stroke();
         continue;
       }
-      // 普通街区地块：按块 tint
+      // 普通街区地块：草地（绿色深浅斑 + 草丛噪点）
       g.fillStyle = blockTint(id);
       g.fillRect(x0, z0, w, h);
+      for (let k = 0; k < 14; k++) {
+        const bx = bounds[i] + 4 + rng() * (bounds[i + 1] - bounds[i] - 8);
+        const bz = bounds[j] + 4 + rng() * (bounds[j + 1] - bounds[j] - 8);
+        g.fillStyle = rng() > 0.5 ? "#7fb35f" : "#9dc97f";
+        g.beginPath();
+        g.arc(m2p(bx), m2p(bz), m2p(1.5 + rng() * 3), 0, Math.PI * 2);
+        g.fill();
+      }
       speckle(g, rng, bounds[i] + 8, bounds[j] + 8, bounds[i + 1] - 8, bounds[j + 1] - 8, 110, 0.05);
     }
   }
