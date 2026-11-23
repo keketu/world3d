@@ -15,6 +15,7 @@ import { qualityFor, applyQuality, detectTier, QualitySettings } from "./quality
 import { sendMove } from "../net/socket";
 import { roomHost } from "./roomHost";
 import { findPath } from "../scene/office/nav";
+import { buildNavGrid, findPath2D, type NavGrid } from "./nav2d";
 
 export interface GameHandle {
   dispose(): void;
@@ -167,6 +168,7 @@ export function startGame(container: HTMLElement): GameHandle {
     townLife = createTownLife(plan, { crowd: q.crowd, heightAt: (x, z) => clientWorld.heightAt(x, z) });
     propGroup.add(townLife.group);
     for (const c of plan.colliders) clientWorld.extra.add(c);
+    navGrid = buildNavGrid(clientWorld.objects.values(), plan.colliders);
   }
 
   // ---------- 道具管理 ----------
@@ -314,16 +316,50 @@ export function startGame(container: HTMLElement): GameHandle {
 
   // ---------- 点击行走 ----------
   let moveTarget: { x: number; z: number } | null = null; // 户外：直线走向目标点
+  /** 绕行途经点：被障碍挡住时先绕到障碍侧面，绕过再回原目标 */
+  let avoidPoint: { x: number; z: number } | null = null;
+  /** 户外寻路网格（建筑 + 街具为障碍），进世界后建一次 */
+  let navGrid: NavGrid | null = null;
+  /** 户外 A* 路径点序列（点击目的地时算一次） */
+  let outdoorPath: Array<{ x: number; z: number }> = [];
+  let outdoorWp = 0;
+  /** 连续卡住帧数（真死角时放弃目标） */
+  let stuckFrames = 0;
+  /** 行人动态阻挡：附近的散步居民算障碍，玩家会绕开 */
+  const pedBlock = (x: number, z: number): boolean => {
+    const ped = townLife?.pedNear(x, z, 0.62);
+    return !!ped && Math.hypot(ped.x - x, ped.z - z) < 0.62;
+  };
   let roomPath: Array<{ x: number; z: number }> | null = null; // 房间：A* 路径
   let roomWp = 1; // 下一个路径点索引（0 是起点）
   /** 点击人物：走到面前后的对话对象（到达后自动开聊） */
   let approach: PersonHit | null = null;
+
+  /** 设定户外目的地：用 A* 算出绕过建筑/街具的路径（没路才退回直线） */
+  function setWalkPath(x: number, z: number) {
+    moveTarget = { x, z };
+    avoidPoint = null;
+    stuckFrames = 0;
+    outdoorPath = [];
+    outdoorWp = 0;
+    if (navGrid) {
+      const path = findPath2D(navGrid, self.x, self.z, x, z);
+      if (path.length > 1) {
+        outdoorPath = path;
+        outdoorWp = 1; // 起点是当前位置
+      }
+    }
+  }
 
   function setPlayerPath(x: number, z: number) {
     if (roomHost.active) {
       roomPath = findPath(self.x, self.z, x, z);
       roomWp = 1;
       moveTarget = null;
+      avoidPoint = null;
+      outdoorPath = [];
+      outdoorWp = 0;
+      stuckFrames = 0;
     } else {
       moveTarget = { x, z };
       roomPath = null;
@@ -517,9 +553,10 @@ export function startGame(container: HTMLElement): GameHandle {
               const dz = self.z - o!.z;
               const dd = Math.hypot(dx, dz) || 1;
               const stop = R + 1.4;
-              if (dd > stop) setPlayerPath(o!.x + (dx / dd) * stop, o!.z + (dz / dd) * stop);
+              if (dd > stop) setWalkPath(o!.x + (dx / dd) * stop, o!.z + (dz / dd) * stop);
             } else {
-              moveTarget = { x: hoverTarget.point.x, z: hoverTarget.point.z };
+              // 点空地行走：先算 A* 路径绕过建筑和街具
+              setWalkPath(hoverTarget.point.x, hoverTarget.point.z);
               roomPath = null;
             }
           }
@@ -857,6 +894,10 @@ export function startGame(container: HTMLElement): GameHandle {
       self.z = z;
       if (rotY !== undefined) self.rotY = rotY;
       moveTarget = null;
+      avoidPoint = null;
+      outdoorPath = [];
+      outdoorWp = 0;
+      stuckFrames = 0;
       roomPath = null;
       camTarget.set(x, y + 1.2, z);
       camCur.set(x, y + 10, z + 3);
@@ -941,6 +982,8 @@ export function startGame(container: HTMLElement): GameHandle {
       if (st.settings.controlMode !== lastControlMode) {
         lastControlMode = st.settings.controlMode;
         moveTarget = null;
+        avoidPoint = null;
+        stuckFrames = 0;
         roomPath = null;
         approach = null;
       }
@@ -969,28 +1012,140 @@ export function startGame(container: HTMLElement): GameHandle {
         if (roomWp >= roomPath.length) roomPath = null;
         self.y = 0;
       } else if (moveTarget) {
-        const dx = moveTarget.x - self.x;
-        const dz = moveTarget.z - self.z;
+        // 沿 A* 路径走（点击目的地时算好）；路径走完再走直线到最终目标
+        if (outdoorPath.length && outdoorWp < outdoorPath.length) {
+          const wp = outdoorPath[outdoorWp];
+          const wdx = wp.x - self.x;
+          const wdz = wp.z - self.z;
+          const wd = Math.hypot(wdx, wdz);
+          if (wd < 0.6) {
+            outdoorWp++;
+          } else {
+            const step = SPEED * dt;
+            const nx = self.x + (wdx / wd) * step;
+            const nz = self.z + (wdz / wd) * step;
+            const blockedHere = clientWorld.blockedAt(self.x, self.z) || pedBlock(self.x, self.z);
+            const okX = blockedHere || !clientWorld.blockedAt(nx, self.z);
+            const okZ = blockedHere || !clientWorld.blockedAt(self.x, nz);
+            if (okX) self.x = nx;
+            if (okZ) self.z = nz;
+            moving = okX || okZ;
+            self.rotY = Math.atan2(wdx, wdz);
+            const ty = clientWorld.surfaceY(self.x, self.z);
+            self.y += (ty - self.y) * Math.min(1, dt * 12);
+          }
+        } else {
+        // 目标点：优先走向绕行途经点（绕开障碍侧面），没有则走向原目标
+        const goal = avoidPoint ?? moveTarget;
+        const dx = goal.x - self.x;
+        const dz = goal.z - self.z;
         const dist = Math.hypot(dx, dz);
         const step = SPEED * dt;
-        if (dist <= step) {
-          self.x = moveTarget.x;
-          self.z = moveTarget.z;
-          moveTarget = null;
-          moving = true;
+        const blocked = (x: number, z: number) => clientWorld.blockedAt(x, z) || pedBlock(x, z);
+        if (avoidPoint && dist < 1.3) {
+          avoidPoint = null; // 绕过障碍，回到原目标
+        } else if (dist <= step) {
+          // 到达：只有落点能站才落位，否则停在这儿（不瞬移进墙/行人里）
+          if (!avoidPoint && !blocked(moveTarget.x, moveTarget.z)) {
+            self.x = moveTarget.x;
+            self.z = moveTarget.z;
+            moveTarget = null;
+            outdoorPath = [];
+            outdoorWp = 0;
+            moving = true;
+          } else {
+            moving = false;
+          }
         } else {
-          const nx = self.x + (dx / dist) * step;
-          const nz = self.z + (dz / dist) * step;
-          const stuckOut = clientWorld.blockedAt(self.x, self.z);
-          const mx = stuckOut || !clientWorld.blockedAt(nx, self.z);
-          const mz = stuckOut || !clientWorld.blockedAt(self.x, nz);
-          if (mx) self.x = nx;
-          if (mz) self.z = nz;
-          if (!mx && !mz) moveTarget = null; // 撞死角就停下
-          moving = mx || mz;
-          self.rotY = Math.atan2(dx, dz);
+          const ux = dx / dist;
+          const uz = dz / dist;
+          const nx = self.x + ux * step;
+          const nz = self.z + uz * step;
+          let moved = false;
+          let faceX = ux;
+          let faceZ = uz;
+          if (!blocked(nx, nz)) {
+            self.x = nx;
+            self.z = nz;
+            moved = true;
+          } else {
+            // 前方有障碍：找一个绕行途经点（障碍侧后方），先绕过去
+            if (!avoidPoint) {
+              const hit = clientWorld.raycastHit(self.x, self.z, ux, uz, 3.2);
+              if (hit) {
+                const px = -uz; // 垂直于视线
+                const pz = ux;
+                for (const r of [2.4, 3.2, 1.8]) {
+                  for (const s of [1, -1]) {
+                    const cx = hit.x + px * r * s;
+                    const cz = hit.z + pz * r * s;
+                    if (!clientWorld.blockedAt(cx, cz)) {
+                      avoidPoint = { x: cx, z: cz };
+                      break;
+                    }
+                  }
+                  if (avoidPoint) break;
+                }
+              }
+            }
+            if (avoidPoint) {
+              // 朝绕行点走一步（每帧重算方向，形成弧线）
+              const ax = avoidPoint.x - self.x;
+              const az = avoidPoint.z - self.z;
+              const ad = Math.hypot(ax, az);
+              if (ad > 0.01) {
+                const bx = self.x + (ax / ad) * step;
+                const bz = self.z + (az / ad) * step;
+                if (!blocked(bx, bz)) {
+                  self.x = bx;
+                  self.z = bz;
+                  faceX = ax / ad;
+                  faceZ = az / ad;
+                  moved = true;
+                } else {
+                  // 绕行点也去不了：沿墙滑
+                  const okX = !blocked(bx, self.z);
+                  const okZ = !blocked(self.x, bz);
+                  if (okX) {
+                    self.x = bx;
+                    moved = true;
+                  }
+                  if (okZ) {
+                    self.z = bz;
+                    moved = true;
+                  }
+                }
+              }
+            } else {
+              // 沿墙滑（兜底）
+              const okX = !blocked(nx, self.z);
+              const okZ = !blocked(self.x, nz);
+              if (okX) {
+                self.x = nx;
+                moved = true;
+              }
+              if (okZ) {
+                self.z = nz;
+                moved = true;
+              }
+            }
+            if (!moved) {
+              stuckFrames++;
+              if (stuckFrames > 150) {
+                // 真死角：放弃目标
+                moveTarget = null;
+                avoidPoint = null;
+                stuckFrames = 0;
+              }
+            } else {
+              stuckFrames = 0;
+            }
+          }
+          moving = moved;
+          self.rotY = Math.atan2(faceX, faceZ);
           const ty = clientWorld.surfaceY(self.x, self.z);
           self.y += (ty - self.y) * Math.min(1, dt * 12);
+        }
         }
       }
 
@@ -1031,6 +1186,10 @@ export function startGame(container: HTMLElement): GameHandle {
         if (keysDown.has("KeyD") || keysDown.has("ArrowRight")) ix += 1;
         if (ix !== 0 || iz !== 0) {
           moveTarget = null; // 键盘接管，取消点击目标
+          avoidPoint = null;
+          outdoorPath = [];
+          outdoorWp = 0;
+          stuckFrames = 0;
           roomPath = null; // 房内也放弃 A* 路径
           approach = null; // 也放弃走向人物的意图
           // 相机朝向：前 = 相机正前方（camYaw 决定）
@@ -1045,13 +1204,13 @@ export function startGame(container: HTMLElement): GameHandle {
           const step = SPEED * st.settings.keyboardSpeed * dt;
           const nx = self.x + wx * step;
           const nz = self.z + wz * step;
-          // 碰撞：户外用地形碰撞，房内用房间障碍
+          // 碰撞：户外用地形碰撞（+行人），房内用房间障碍
           const blocked = roomHost.active
             ? roomHost.movementBlocked(nx, nz)
-            : clientWorld.blockedAt(nx, nz);
+            : clientWorld.blockedAt(nx, nz) || pedBlock(nx, nz);
           const blockedHere = roomHost.active
             ? roomHost.movementBlocked(self.x, self.z)
-            : clientWorld.blockedAt(self.x, self.z);
+            : clientWorld.blockedAt(self.x, self.z) || pedBlock(self.x, self.z);
           if (!blocked) {
             self.x = nx;
             self.z = nz;
@@ -1063,12 +1222,52 @@ export function startGame(container: HTMLElement): GameHandle {
             // 沿墙滑动：只走未被挡住的轴
             const okX = roomHost.active
               ? !roomHost.movementBlocked(nx, self.z)
-              : !clientWorld.blockedAt(nx, self.z);
+              : !clientWorld.blockedAt(nx, self.z) && !pedBlock(nx, self.z);
             const okZ = roomHost.active
               ? !roomHost.movementBlocked(self.x, nz)
-              : !clientWorld.blockedAt(self.x, nz);
+              : !clientWorld.blockedAt(self.x, nz) && !pedBlock(self.x, nz);
             if (okX) self.x = nx;
             if (okZ) self.z = nz;
+            if (!okX && !okZ) {
+              // 正面对墙：找撞点求墙法线，沿墙的切线方向走（贴着墙绕过去，不会死锁）
+              const hit = roomHost.active ? null : clientWorld.raycastHit(self.x, self.z, wx, wz, 1.3);
+              if (hit) {
+                let nX = self.x - hit.x;
+                let nZ = self.z - hit.z;
+                const nl = Math.hypot(nX, nZ) || 1;
+                nX /= nl;
+                nZ /= nl;
+                const tX = -nZ; // 切线 = 法线旋转 90°
+                const tZ = nX;
+                for (const s of [1, -1]) {
+                  const bx = self.x + tX * step * s;
+                  const bz = self.z + tZ * step * s;
+                  const ok = roomHost.active ? !roomHost.movementBlocked(bx, bz) : !clientWorld.blockedAt(bx, bz) && !pedBlock(bx, bz);
+                  if (ok) {
+                    self.x = bx;
+                    self.z = bz;
+                    break;
+                  }
+                }
+              } else {
+                // 房内（没有户外射线）：偏转绕行
+                const angles = [0.7, -0.7, 1.25, -1.25];
+                for (const a of angles) {
+                  const c = Math.cos(a);
+                  const s = Math.sin(a);
+                  const rx = wx * c - wz * s;
+                  const rz = wx * s + wz * c;
+                  const bx = self.x + rx * step;
+                  const bz = self.z + rz * step;
+                  const ok = roomHost.active ? !roomHost.movementBlocked(bx, bz) : !clientWorld.blockedAt(bx, bz) && !pedBlock(bx, bz);
+                  if (ok) {
+                    self.x = bx;
+                    self.z = bz;
+                    break;
+                  }
+                }
+              }
+            }
           }
           moving = true;
           if (Math.abs(wx) > 0.001 || Math.abs(wz) > 0.001) self.rotY = Math.atan2(wx, wz);
@@ -1410,6 +1609,10 @@ export function startGame(container: HTMLElement): GameHandle {
       self.z = z;
       if (y !== undefined) self.y = y;
       moveTarget = null;
+      avoidPoint = null;
+      outdoorPath = [];
+      outdoorWp = 0;
+      stuckFrames = 0;
       roomPath = null;
     },
     walkState: () => ({
@@ -1417,7 +1620,12 @@ export function startGame(container: HTMLElement): GameHandle {
       roomPath: roomPath ? roomPath.length : null,
       approach: approach ? `${approach.kind}:${approach.id}` : null,
       chatOpen: !!document.querySelector(".chatPanel.open"),
+      avoidPoint: avoidPoint ? { x: Math.round(avoidPoint.x * 10) / 10, z: Math.round(avoidPoint.z * 10) / 10 } : null,
     }),
+    /** 调试：直接指定点击目的地（自动化测试用） */
+    setWalkTarget: (x: number, z: number) => {
+      setWalkPath(x, z);
+    },
     store: useWorld,
     setLandOverlay: (rows: Array<{ plotId: string; ownerId: string; ownerName: string }> | null) => setLandOverlay(rows),
     townStats: () => ({ dressing: dressing?.stats ?? null, life: townLife?.stats ?? null }),

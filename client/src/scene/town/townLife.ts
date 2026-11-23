@@ -21,6 +21,8 @@ export interface TownLife {
   stats: { cars: number; peds: number };
   /** 调试：车辆与居民位置采样 */
   sample(): { cars: Array<{ x: number; z: number; v: number }>; peds: Array<{ x: number; z: number }> };
+  /** 附近居民（玩家绕人用）：返回半径内最近的一位 */
+  pedNear(x: number, z: number, r: number): { x: number; z: number } | null;
 }
 
 interface Loop {
@@ -175,6 +177,20 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
   return {
     group,
     stats: { cars: cars.length, peds: peds.length },
+    pedNear(x, z, r) {
+      let best: { x: number; z: number } | null = null;
+      let bd = r * r;
+      for (const p of peds) {
+        const dx = p.x - x;
+        const dz = p.z - z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bd) {
+          bd = d2;
+          best = { x: p.x, z: p.z };
+        }
+      }
+      return best;
+    },
     sample() {
       return {
         cars: cars.map((c) => ({ x: Math.round(c.mesh.position.x * 10) / 10, z: Math.round(c.mesh.position.z * 10) / 10, v: Math.round(c.v * 100) / 100 })),

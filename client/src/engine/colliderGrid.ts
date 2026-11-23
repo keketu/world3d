@@ -40,6 +40,13 @@ export class ColliderGrid {
     }
   }
 
+  /** 全部碰撞体（建寻路网格用） */
+  all(): Collider[] {
+    const out: Collider[] = [];
+    for (const arr of this.cells.values()) for (const c of arr) if (!out.includes(c)) out.push(c);
+    return out;
+  }
+
   /** 点 (x,z) 外扩 margin 后是否碰到任何碰撞体 */
   hit(x: number, z: number, margin: number): boolean {
     const arr = this.cells.get(Math.floor(x / CELL) * 4096 + Math.floor(z / CELL));

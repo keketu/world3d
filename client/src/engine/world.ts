@@ -157,6 +157,18 @@ class ClientWorld {
     return false;
   }
 
+  /** 沿方向探测第一个被挡的位置（绕行用：返回命中点，没挡到返回 null） */
+  raycastHit(x: number, z: number, dx: number, dz: number, maxDist: number): { x: number; z: number } | null {
+    const steps = Math.ceil(maxDist / 0.25);
+    for (let i = 1; i <= steps; i++) {
+      const t = i * 0.25;
+      const px = x + dx * t;
+      const pz = z + dz * t;
+      if (this.blockedAt(px, pz)) return { x: px, z: pz };
+    }
+    return null;
+  }
+
   /** 手搓放置（走服务端权威校验） */
   placeProp(kind: string, variant: string, x: number, z: number, rotY: number, cb?: (ok: boolean, reason?: string) => void) {
     requestPlace({ kind, variant, x, z, rotY }, cb);
