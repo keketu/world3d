@@ -4,9 +4,14 @@ import { QualityTier } from "../state/store";
 export interface QualitySettings {
   tier: QualityTier;
   dpr: number; // 最终 devicePixelRatio（含渲染比例）
+  fogNear: number;
   fogFar: number;
-  viewChunks: number; // 视野区块半径
-  interestRadius: number;
+  /** 实时阴影贴图边长（0 = 关闭阴影） */
+  shadowMap: number;
+  /** 阴影覆盖半径（米，以玩家为中心） */
+  shadowExtent: number;
+  /** 环境居民数量（散步 NPC） */
+  crowd: number;
 }
 
 export function detectTier(): QualityTier {
@@ -23,17 +28,18 @@ export function detectTier(): QualityTier {
 export function qualityFor(tier: QualityTier): QualitySettings {
   switch (tier) {
     case "high":
-      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 2), fogFar: 110, viewChunks: 5, interestRadius: 56 };
+      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 2), fogNear: 140, fogFar: 480, shadowMap: 4096, shadowExtent: 100, crowd: 12 };
     case "mid":
-      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 1.25), fogFar: 80, viewChunks: 4, interestRadius: 48 };
+      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 1.25), fogNear: 100, fogFar: 340, shadowMap: 2048, shadowExtent: 80, crowd: 8 };
     case "low":
-      return { tier, dpr: 0.75, fogFar: 58, viewChunks: 3, interestRadius: 40 };
+      return { tier, dpr: 0.75, fogNear: 45, fogFar: 190, shadowMap: 0, shadowExtent: 0, crowd: 4 };
   }
 }
 
-export function applyQuality(tier: QualityTier, renderer: { setPixelRatio: (v: number) => void }, fog: { far: number }): QualitySettings {
+export function applyQuality(tier: QualityTier, renderer: { setPixelRatio: (v: number) => void }, fog: { near: number; far: number }): QualitySettings {
   const q = qualityFor(tier);
   renderer.setPixelRatio(q.dpr);
+  fog.near = q.fogNear;
   fog.far = q.fogFar;
   return q;
 }

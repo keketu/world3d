@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { WORLD_SEED, mulberry32, zoneAt, blockId, ROAD_LINES, ROAD_HALF, SIDEWALK_W, EDGE_GRASS, CITY_SIZE } from "@world3d/shared";
 import { clientWorld } from "./world";
+import { getTownPlan, type Paving, type ParkingBay } from "../scene/town/townPlan";
 
 const SEGMENTS = 220; // 256 世界 / 220 段 ≈ 1.16m 一格
 const TEX_PX_PER_M = 8; // 2048² 贴图 = 8px/m，0.3m 标线 ≈ 2.4px 清晰
@@ -20,12 +21,48 @@ const COLORS = {
   plazaRing: "#b5afa2",
   curb: "#a9a294",
   lotTints: ["#93c273", "#8ab96a", "#9dc97f", "#88b566", "#97c077"], // 街区=草地绿（深浅微差）
+  forecourt: "#ded5c0",  // 建筑门前小广场：暖色石板
+  walkway: "#d3c9b3",   // 步道：略深的石板
 };
 
 function blockTint(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
   return COLORS.lotTints[Math.abs(h) % COLORS.lotTints.length];
+}
+
+/** 在画布上摆到世界坐标 (x,z) 并转 rotY（局部 +z 朝 (sin rotY, cos rotY)），在世界系里画矩形 */
+function inLocal(g: CanvasRenderingContext2D, x: number, z: number, rotY: number, draw: () => void) {
+  g.save();
+  g.translate(m2p(x), m2p(z));
+  g.rotate(-rotY);
+  draw();
+  g.restore();
+}
+
+/** 建筑门前铺装 / 步道（石板 + 细边） */
+function drawPaving(g: CanvasRenderingContext2D, p: Paving) {
+  inLocal(g, p.x, p.z, p.rotY, () => {
+    g.fillStyle = p.tone === 0 ? COLORS.forecourt : COLORS.walkway;
+    g.fillRect(m2p(-p.hw), m2p(-p.hd), m2p(p.hw * 2), m2p(p.hd * 2));
+    g.strokeStyle = "rgba(140,128,106,0.45)";
+    g.lineWidth = m2p(0.1);
+    g.strokeRect(m2p(-p.hw), m2p(-p.hd), m2p(p.hw * 2), m2p(p.hd * 2));
+  });
+}
+
+/** 路边泊位：两端横线 + 路缘侧长边（局部 +z 朝路缘） */
+function drawBay(g: CanvasRenderingContext2D, b: ParkingBay) {
+  inLocal(g, b.x, b.z, b.rotY, () => {
+    g.strokeStyle = "rgba(240,238,230,0.85)";
+    g.lineWidth = m2p(0.14);
+    g.beginPath();
+    g.moveTo(m2p(-b.len / 2), m2p(-b.wid / 2));
+    g.lineTo(m2p(-b.len / 2), m2p(b.wid / 2));
+    g.lineTo(m2p(b.len / 2), m2p(b.wid / 2));
+    g.lineTo(m2p(b.len / 2), m2p(-b.wid / 2));
+    g.stroke();
+  });
 }
 
 /** 在街区矩形内撒低透明度噪点，打破大色块的塑料感 */
@@ -85,29 +122,42 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
         (bounds[j] + bounds[j + 1]) / 2
       );
       if (id === "2-2" || id === "2-3") {
-        // 市民广场（两块 + 中央大道贯穿）：灰色石砖
-        g.fillStyle = COLORS.plaza;
+        // 市民广场（被 z=160 那条路分成南北两块）：外圈草坪环，中间 34×34 浅色石板核心，十字步道通向四边人行道
+        const cx = bounds[i] + 32;
+        const cz = bounds[j] + 32;
+        g.fillStyle = blockTint(id);
         g.fillRect(x0, z0, w, h);
-        // 砖缝网格（4m 方格）
-        g.strokeStyle = "rgba(120,112,96,0.4)";
+        g.fillStyle = "rgba(255,255,255,0.075)";
+        for (let t = bounds[i] + 2; t < bounds[i + 1]; t += 8) g.fillRect(m2p(t), z0, m2p(4), h);
+        g.fillStyle = COLORS.plaza;
+        const half = 17;
+        const pw = 1.6; // 步道半宽
+        g.fillRect(m2p(cx - half), m2p(cz - half), m2p(half * 2), m2p(half * 2));
+        g.fillRect(m2p(cx - pw), m2p(cz - 26), m2p(pw * 2), m2p(26 - half));
+        g.fillRect(m2p(cx - pw), m2p(cz + half), m2p(pw * 2), m2p(26 - half));
+        g.fillRect(m2p(cx - 26), m2p(cz - pw), m2p(26 - half), m2p(pw * 2));
+        g.fillRect(m2p(cx + half), m2p(cz - pw), m2p(26 - half), m2p(pw * 2));
+        // 核心 4m 分格，隔一格加深一点，读得出棋盘而不花
+        g.strokeStyle = "rgba(120,112,96,0.38)";
         g.lineWidth = m2p(0.08);
-        for (let t = bounds[i]; t <= bounds[i + 1]; t += 4) {
-          g.beginPath(); g.moveTo(m2p(t), z0); g.lineTo(m2p(t), z0 + h); g.stroke();
+        for (let t = cx - half; t <= cx + half; t += 4) {
+          g.beginPath(); g.moveTo(m2p(t), m2p(cz - half)); g.lineTo(m2p(t), m2p(cz + half)); g.stroke();
+          g.beginPath(); g.moveTo(m2p(cx - half), m2p(t)); g.lineTo(m2p(cx + half), m2p(t)); g.stroke();
         }
-        for (let t = bounds[j]; t <= bounds[j + 1]; t += 4) {
-          g.beginPath(); g.moveTo(x0, m2p(t)); g.lineTo(x0 + w, m2p(t)); g.stroke();
+        g.fillStyle = "rgba(120,112,96,0.07)";
+        for (let tx = cx - half; tx < cx + half; tx += 8) {
+          for (let tz = cz - half + (((tx - cx + half) / 4) % 2 ? 4 : 0); tz < cz + half; tz += 8) {
+            g.fillRect(m2p(tx), m2p(tz), m2p(4), m2p(4));
+          }
         }
-        // 同心环装饰（以各自块中心）
-        const cx = x0 + w / 2;
-        const cz = z0 + h / 2;
+        // 围着中心景点的装饰环
         g.strokeStyle = COLORS.plazaRing;
-        g.lineWidth = m2p(0.4);
-        for (let r = 6; r <= 22; r += 5) {
+        g.lineWidth = m2p(0.5);
+        for (const r of [10.5, 11.2, 16]) {
           g.beginPath();
-          g.arc(cx, cz, m2p(r), 0, Math.PI * 2);
+          g.arc(m2p(cx), m2p(cz), m2p(r), 0, Math.PI * 2);
           g.stroke();
         }
-        speckle(g, rng, bounds[i] + 8, bounds[j] + 8, bounds[i + 1] - 8, bounds[j + 1] - 8, 90, 0.05);
         continue;
       }
       if (i === 0 || i === 4 || j === 0 || j === 4) {
@@ -118,38 +168,47 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
         continue;
       }
       if (zoneAt((bounds[i] + bounds[i + 1]) / 2, (bounds[j] + bounds[j + 1]) / 2) === "park") {
-        // 公园块：草绿 + 深浅斑块 + 土路圆环
+        // 公园块：草地 + 深浅斑块 + 环形土路和中央小广场（三维里有长椅环着它）
         g.fillStyle = COLORS.park;
         g.fillRect(x0, z0, w, h);
-        for (let k = 0; k < 10; k++) {
+        for (let k = 0; k < 16; k++) {
           const bx = bounds[i] + 6 + rng() * (bounds[i + 1] - bounds[i] - 12);
           const bz = bounds[j] + 6 + rng() * (bounds[j + 1] - bounds[j] - 12);
-          g.fillStyle = rng() > 0.5 ? "#7aab5d" : "#93c47d";
+          g.fillStyle = "rgba(96,150,80,0.35)";
           g.beginPath();
-          g.arc(m2p(bx), m2p(bz), m2p(2 + rng() * 4), 0, Math.PI * 2);
+          g.arc(m2p(bx), m2p(bz), m2p(1.2 + rng() * 2.2), 0, Math.PI * 2);
           g.fill();
         }
-        g.strokeStyle = "#c9a97e";
-        g.lineWidth = m2p(1.2);
+        const pcx = m2p(bounds[i] + 32);
+        const pcz = m2p(bounds[j] + 32);
+        g.strokeStyle = "#cdb08a";
+        g.lineWidth = m2p(1.3);
         g.beginPath();
-        g.arc(m2p((bounds[i] + bounds[i + 1]) / 2), m2p((bounds[j] + bounds[j + 1]) / 2), m2p(12), 0.4, Math.PI * 1.6);
+        g.arc(pcx, pcz, m2p(12), 0, Math.PI * 2);
         g.stroke();
+        g.fillStyle = "#cdb08a";
+        g.beginPath();
+        g.arc(pcx, pcz, m2p(2.6), 0, Math.PI * 2);
+        g.fill();
         continue;
       }
-      // 普通街区地块：草地（绿色深浅斑 + 草丛噪点）
+      // 普通街区地块：修剪过的草坪——每块深浅微差，叠 4m 宽的割草条纹（方向逐块交替）
       g.fillStyle = blockTint(id);
       g.fillRect(x0, z0, w, h);
-      for (let k = 0; k < 14; k++) {
-        const bx = bounds[i] + 4 + rng() * (bounds[i + 1] - bounds[i] - 8);
-        const bz = bounds[j] + 4 + rng() * (bounds[j + 1] - bounds[j] - 8);
-        g.fillStyle = rng() > 0.5 ? "#7fb35f" : "#9dc97f";
-        g.beginPath();
-        g.arc(m2p(bx), m2p(bz), m2p(1.5 + rng() * 3), 0, Math.PI * 2);
-        g.fill();
+      g.fillStyle = "rgba(255,255,255,0.075)";
+      const alongX = (i + j) % 2 === 0;
+      for (let t = bounds[i] + 2; t < bounds[i + 1]; t += 8) {
+        if (alongX) g.fillRect(m2p(t), z0, m2p(4), h);
       }
-      speckle(g, rng, bounds[i] + 8, bounds[j] + 8, bounds[i + 1] - 8, bounds[j + 1] - 8, 110, 0.05);
+      for (let t = bounds[j] + 2; t < bounds[j + 1]; t += 8) {
+        if (!alongX) g.fillRect(x0, m2p(t), w, m2p(4));
+      }
+      speckle(g, rng, bounds[i] + 8, bounds[j] + 8, bounds[i + 1] - 8, bounds[j + 1] - 8, 160, 0.045);
     }
   }
+
+  // 2b) 建筑门前铺装与步道（和三维陈设同一份布局：townPlan）
+  for (const p of getTownPlan(clientWorld.objects.values()).paving) drawPaving(g, p);
 
   // 3) 人行道（贴着路两侧的全长条带）
   g.fillStyle = COLORS.sidewalk;
@@ -180,19 +239,28 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
     }
   }
 
-  // 6) 车道中央虚线
+  // 6) 车道中央虚线：分段画，路口里不画（路口是斑马线和停止线的地方）
   g.strokeStyle = COLORS.laneDash;
   g.lineWidth = m2p(0.3);
   g.setLineDash([m2p(3), m2p(2.6)]);
-  for (const L of ROAD_LINES) {
-    g.beginPath();
-    g.moveTo(m2p(L), clipLo);
-    g.lineTo(m2p(L), clipHi);
-    g.stroke();
-    g.beginPath();
-    g.moveTo(clipLo, m2p(L));
-    g.lineTo(clipHi, m2p(L));
-    g.stroke();
+  {
+    const edges = [EDGE_GRASS, ...ROAD_LINES, size - EDGE_GRASS];
+    for (const L of ROAD_LINES) {
+      for (let s = 0; s < edges.length - 1; s++) {
+        const from = edges[s] + (s > 0 ? ROAD_HALF + 1.6 : 0);
+        const to = edges[s + 1] - (s < edges.length - 2 ? ROAD_HALF + 1.6 : 0);
+        g.lineDashOffset = -m2p(from);
+        g.beginPath();
+        g.moveTo(m2p(L), m2p(from));
+        g.lineTo(m2p(L), m2p(to));
+        g.stroke();
+        g.beginPath();
+        g.moveTo(m2p(from), m2p(L));
+        g.lineTo(m2p(to), m2p(L));
+        g.stroke();
+      }
+    }
+    g.lineDashOffset = 0;
   }
   g.setLineDash([]);
 
@@ -201,28 +269,29 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
     for (const Lz of ROAD_LINES) crosswalk(g, Lx, Lz);
   }
 
-  // 8) 人行道砖缝（沿路的横缝 + 纵缝，浅色细线）
-  g.strokeStyle = "rgba(120,110,96,0.35)";
-  g.lineWidth = m2p(0.06);
-  for (const L of ROAD_LINES) {
-    for (const s of [-1, 1]) {
-      const band0 = m2p(L + s * (ROAD_HALF + 0.2));
-      const band1 = m2p(L + s * (ROAD_HALF + SIDEWALK_W - 0.2));
-      for (let t = m2p(8); t <= m2p(size - 8); t += m2p(2.2)) {
-        // 横缝（垂直于路方向）
-        g.beginPath();
-        if (band1 > band0) {
-          g.moveTo(band0, t);
-          g.lineTo(band1, t);
-        } else {
-          g.moveTo(band1, t);
-          g.lineTo(band0, t);
+  // 8) 人行道砖缝（横缝每 2.2m 一道），只在路段内画，路口里没有人行道就不画
+  {
+    const edges = [EDGE_GRASS, ...ROAD_LINES, size - EDGE_GRASS];
+    g.strokeStyle = "rgba(120,110,96,0.35)";
+    g.lineWidth = m2p(0.06);
+    for (const L of ROAD_LINES) {
+      for (const s of [-1, 1]) {
+        const a = m2p(L + s * (ROAD_HALF + 0.2));
+        const b = m2p(L + s * (ROAD_HALF + SIDEWALK_W - 0.2));
+        for (let k = 0; k < edges.length - 1; k++) {
+          const from = edges[k] + (k > 0 ? ROAD_HALF : 0);
+          const to = edges[k + 1] - (k < edges.length - 2 ? ROAD_HALF : 0);
+          for (let t = from + 1.1; t < to; t += 2.2) {
+            g.beginPath();
+            g.moveTo(a, m2p(t));
+            g.lineTo(b, m2p(t));
+            g.stroke();
+            g.beginPath();
+            g.moveTo(m2p(t), a);
+            g.lineTo(m2p(t), b);
+            g.stroke();
+          }
         }
-        g.stroke();
-        g.beginPath();
-        g.moveTo(t, band0);
-        g.lineTo(t, band1);
-        g.stroke();
       }
     }
   }
@@ -258,6 +327,9 @@ function drawCityCanvas(size: number): HTMLCanvasElement {
     }
   }
 
+  // 10) 路边泊位白线（和停着的车同一份布局）
+  for (const b of getTownPlan(clientWorld.objects.values()).bays) drawBay(g, b);
+
   return canvas;
 }
 
@@ -291,5 +363,6 @@ export function buildTerrain(size: number): THREE.Mesh {
     new THREE.MeshLambertMaterial({ map: cityMapTexture(CITY_SIZE) })
   );
   mesh.name = "terrain";
+  mesh.receiveShadow = true; // 承接建筑/树/人的实时阴影
   return mesh;
 }

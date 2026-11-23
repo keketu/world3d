@@ -33,6 +33,9 @@ export function blockCenter(b: number): number {
 // 广场块：出生点 + 办公楼所在的两块（不落楼，画广场铺装）
 const PLAZA_BLOCKS = new Set(["2-2", "2-3"]);
 
+/** 广场块 id（客户端街景陈设用：喷泉/凉亭/外摆都放这里） */
+export const PLAZA_IDS = PLAZA_BLOCKS;
+
 // 公园块：从剩余街区中确定性挑 1 块
 const PARK_BLOCKS: Set<string> = (() => {
   const candidates = ["1-1", "1-2", "1-3", "2-1", "3-1", "3-2", "3-3"];

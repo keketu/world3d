@@ -1,5 +1,6 @@
 // 程序化 Q 版小人（移植自 office3d 的画法，简化为原生 three）
 import * as THREE from "three";
+import { mergeParts } from "./mergeParts";
 
 const SKINS = ["#ffd9c4", "#ffe3d3", "#f6c8a8", "#ffdcc8", "#f9d2b4"];
 const HAIRS = ["#3d2c24", "#5a3825", "#26211f", "#6b4a2f", "#1f2229"];
@@ -130,6 +131,39 @@ export function createAvatar(name: string, color: string): Avatar {
   bodyGroup.add(head);
 
   return { group, legL, legR, armL, armR, bodyGroup, head };
+}
+
+/**
+ * 小人瘦身：每个肢体里的若干小网格各自合成 1 个顶点色网格（约 20 → 7 个 draw call）
+ * 各肢体的枢轴不变，animateAvatar 照常驱动；材质按小人独立一份（离线半透明要逐人改）
+ */
+export function compactAvatar(av: Avatar) {
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const mergeGroup = (g: THREE.Group) => {
+    const meshes = g.children.filter((c): c is THREE.Mesh => (c as THREE.Mesh).isMesh);
+    if (meshes.length < 2) return;
+    const geo = mergeParts(meshes);
+    for (const m of meshes) g.remove(m);
+    const merged = new THREE.Mesh(geo, mat);
+    merged.castShadow = true;
+    g.add(merged);
+  };
+  // 头不单独做动画（只随身体转），先把它并进身体，少一个 draw call
+  if (av.head.parent === av.bodyGroup) {
+    av.head.updateMatrix();
+    for (const c of [...av.head.children]) {
+      if ((c as THREE.Mesh).isMesh) {
+        c.applyMatrix4(av.head.matrix);
+        av.bodyGroup.add(c);
+      }
+    }
+    av.bodyGroup.remove(av.head);
+  }
+  mergeGroup(av.legL);
+  mergeGroup(av.legR);
+  mergeGroup(av.armL);
+  mergeGroup(av.armR);
+  mergeGroup(av.bodyGroup);
 }
 
 /** 行走/待机动画（每帧调用） */

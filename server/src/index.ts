@@ -227,6 +227,17 @@ builder.attach(io);
   }
 }
 
+// 绿化与街具一次性迁移：系统早前种的树/花/路灯风格与现在的城市布局不统一，
+// 全部交给客户端 townPlan 统一生成（行道树/密林/路灯/红绿灯），这里只清理系统造的，用户造物不动
+{
+  for (const o of [...world.objects.values()]) {
+    if (o.creatorId !== "system" && o.creatorId !== "system-city") continue;
+    if (o.kind !== "tree" && o.kind !== "flower" && o.kind !== "lamp") continue;
+    world.objects.delete(o.id);
+    db.deleteObject(o.id);
+  }
+}
+
 // 城市街区对账（boot）：写字楼/商铺/公园绿化的确定性布局 —— system 城建造物漂移删除、缺失补种；用户造物永不动
 {
   const SYS_CITY = "system-city";
@@ -267,62 +278,7 @@ builder.attach(io);
   const greenRng = mulberry32(WORLD_SEED ^ 0x7061726b); // "park"
   const LINES = [32, 96, 160, 224];
   const bounds = [0, ...LINES, 256];
-  const zones: Array<{ x0: number; z0: number; x1: number; z1: number }> = [];
-  for (let i = 0; i < 5; i++) {
-    for (let j = 0; j < 5; j++) {
-      if (i === 0 || i === 4 || j === 0 || j === 4 || PARK_IDS.has(`${i}-${j}`)) {
-        zones.push({ x0: bounds[i] + 4, z0: bounds[j] + 4, x1: bounds[i + 1] - 4, z1: bounds[j + 1] - 4 });
-      }
-    }
-  }
-  // 街道路灯：沿主干道 96/160 两条轴线（广场两侧），人行道外缘单侧交错布置
-  const lampLines = [96, 160];
-  const lampRng = mulberry32(WORLD_SEED ^ 0x6c616d70); // "lamp"
-  for (const L of lampLines) {
-    for (const axis of [0, 1]) {
-      let side = lampRng() > 0.5 ? 1 : -1;
-      for (let t = 42; t <= 214; t += 22) {
-        // 跳过与另一轴主干道交叉的路口段
-        const nearCross = lampLines.some((X) => Math.abs(t - X) < 9);
-        if (nearCross) continue;
-        const off = 5.5 + 1.2 * side;
-        const x = axis === 0 ? L + off : t;
-        const zz = axis === 0 ? t : L + off;
-        if (!world.isLand(Math.floor(x), Math.floor(zz))) continue;
-        const exists = [...world.objects.values()].some((o) => o.creatorId === "system" && o.kind === "lamp" && Math.hypot(o.x - x, o.z - zz) < 2);
-        if (exists) continue;
-        if (!world.validatePlacement("lamp", x, zz).ok) continue;
-        // 灯臂朝向道路：横臂在局部 +z，rotY 让它指向路面中心
-        const rotY = axis === 0 ? (side > 0 ? -Math.PI / 2 : Math.PI / 2) : side > 0 ? Math.PI : 0;
-        const row = world.addObject(
-          { kind: "lamp", variant: "暖光", x, z: zz, rotY, scale: 1, creatorId: "system", creatorName: "小世界城建", createdAt: Date.now(), params: {} },
-          {}
-        );
-        db.insertObject(row);
-      }
-      side *= -1;
-    }
-  }
 
-  for (const zone of zones) {
-    const w = zone.x1 - zone.x0;
-    const h = zone.z1 - zone.z0;
-    const n = Math.min(14, Math.max(5, Math.round((w * h) / 90)));
-    for (let k = 0; k < n; k++) {
-      const x = Math.round(zone.x0 + greenRng() * w);
-      const zz = Math.round(zone.z0 + greenRng() * h);
-      const kind = greenRng() > 0.25 ? "tree" : "flower";
-      const variant = kind === "tree" ? (greenRng() > 0.5 ? "松" : "白桦") : greenRng() > 0.5 ? "白" : "黄";
-      const exists = [...world.objects.values()].some((o) => o.creatorId === "system" && Math.hypot(o.x - x, o.z - zz) < 1.2);
-      if (exists) continue;
-      if (!world.validatePlacement(kind, x, zz).ok) continue;
-      const row = world.addObject(
-        { kind, variant, x, z: zz, rotY: greenRng() * Math.PI * 2, scale: kind === "tree" ? 1.1 : 1, creatorId: "system", creatorName: "小世界城建", createdAt: Date.now(), params: {} },
-        {}
-      );
-      db.insertObject(row);
-    }
-  }
 }
 
 /** 编排器事件名 → 客户端 room:* 事件名映射 */

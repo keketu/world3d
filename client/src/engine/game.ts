@@ -3,11 +3,15 @@ import * as THREE from "three";
 import { HOTBAR_PROPS, PROP_KINDS, PlayerInfo, WorldObject, isBuildingKind, isPropCollidable, buildingSize, buildingRect, plotIdAt, plotBounds, propIcon, propLabel } from "@world3d/shared";
 import { clientWorld } from "./world";
 import { buildTerrain } from "./terrain";
+import { buildSkyline } from "../scene/skyline";
+import { getTownPlan } from "../scene/town/townPlan";
+import { buildTownDressing, TownDressing, trafficPhase } from "../scene/town/townDressing";
+import { createTownLife, TownLife } from "../scene/town/townLife";
 import { pixelAvatarDataURL } from "../scene/pixelAvatar";
 import { buildProp } from "./props";
 import { createAvatar, animateAvatar, setAvatarOffline, Avatar } from "../scene/avatar";
 import { useWorld, ControlMode } from "../state/store";
-import { qualityFor, applyQuality, detectTier } from "./quality";
+import { qualityFor, applyQuality, detectTier, QualitySettings } from "./quality";
 import { sendMove } from "../net/socket";
 import { roomHost } from "./roomHost";
 import { findPath } from "../scene/office/nav";
@@ -33,7 +37,7 @@ export function startGame(container: HTMLElement): GameHandle {
 
   const tier = detectTier();
   useWorld.getState().setTier(tier);
-  const q = qualityFor(tier);
+  let q = qualityFor(tier);
 
   // ---------- 三件套 ----------
   const scene = new THREE.Scene();
@@ -43,30 +47,82 @@ export function startGame(container: HTMLElement): GameHandle {
   skyCanvas.height = 256;
   const sctx = skyCanvas.getContext("2d")!;
   const grad = sctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, "#8fc7ec");
-  grad.addColorStop(0.55, "#c8e4ef");
-  grad.addColorStop(1, "#f2f6ec");
+  grad.addColorStop(0, "#6db5e6");
+  grad.addColorStop(0.55, "#b7dcf3");
+  grad.addColorStop(1, "#e8f3ef");
   sctx.fillStyle = grad;
   sctx.fillRect(0, 0, 2, 256);
   const skyTex = new THREE.CanvasTexture(skyCanvas);
   skyTex.colorSpace = THREE.SRGBColorSpace;
   scene.background = skyTex;
-  const HORIZON = new THREE.Color("#e2f0ea");
-  const fog = new THREE.Fog(HORIZON, q.fogFar * 0.68, q.fogFar);
+  const HORIZON = new THREE.Color("#dceef0");
+  const fog = new THREE.Fog(HORIZON, q.fogNear, q.fogFar);
   scene.fog = fog;
 
-  const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 500);
+  const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1400);
   const renderer = new THREE.WebGLRenderer({ antialias: tier !== "low" });
   applyQuality(tier, renderer, fog);
   renderer.setSize(container.clientWidth, container.clientHeight);
   container.appendChild(renderer.domElement);
 
-  const hemi = new THREE.HemisphereLight(0xe8f5ff, 0xa8c48a, 1.0);
+  // ---------- 光照：晴天（物理光照单位下漫反射会再除以 π，强度按此标定） ----------
+  // 受光顶面 ≈ 1.07×固有色，阴影里 ≈ 0.5×——明暗分明但不发黑
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const hemi = new THREE.HemisphereLight(0xdcefff, 0xa9bd8e, 1.35);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff0da, 1.1);
-  sun.position.set(60, 90, 30);
+  const amb = new THREE.AmbientLight(0xffffff, 0.25);
+  scene.add(amb);
+  // 太阳方向固定；阴影相机每帧跟随玩家（见 updateSun），覆盖范围随画质档位
+  const UP = new THREE.Vector3(0, 1, 0);
+  const SUN_DIR = new THREE.Vector3(0.62, 1, 0.4).normalize();
+  const sun = new THREE.DirectionalLight(0xfff3dc, 2.2);
   scene.add(sun);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.28));
+  scene.add(sun.target);
+  // 光照坐标系的右/上轴：阴影中心沿这两轴对齐贴图纹素，走动时阴影边缘不抖
+  const sunRight = new THREE.Vector3().crossVectors(SUN_DIR, UP).normalize();
+  const sunUp = new THREE.Vector3().crossVectors(sunRight, SUN_DIR).normalize();
+  function applySunQuality(qq: QualitySettings) {
+    const on = qq.shadowMap > 0;
+    renderer.shadowMap.enabled = on;
+    sun.castShadow = on;
+    if (!on) return;
+    const sc = sun.shadow.camera as THREE.OrthographicCamera;
+    sc.left = -qq.shadowExtent;
+    sc.right = qq.shadowExtent;
+    sc.top = qq.shadowExtent;
+    sc.bottom = -qq.shadowExtent;
+    sc.near = 10;
+    sc.far = 520;
+    sc.updateProjectionMatrix();
+    if (sun.shadow.mapSize.x !== qq.shadowMap) {
+      sun.shadow.mapSize.set(qq.shadowMap, qq.shadowMap);
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+    }
+    sun.shadow.bias = -0.0003;
+    sun.shadow.normalBias = 0.05;
+  }
+  function updateSun(cx: number, cy: number, cz: number) {
+    const texel = (2 * q.shadowExtent) / Math.max(1, q.shadowMap);
+    const rx = cx * sunRight.x + cy * sunRight.y + cz * sunRight.z;
+    const uy = cx * sunUp.x + cy * sunUp.y + cz * sunUp.z;
+    const dz = cx * SUN_DIR.x + cy * SUN_DIR.y + cz * SUN_DIR.z;
+    const a = Math.round(rx / texel) * texel;
+    const b = Math.round(uy / texel) * texel;
+    const tx = sunRight.x * a + sunUp.x * b + SUN_DIR.x * dz;
+    const ty = sunRight.y * a + sunUp.y * b + SUN_DIR.y * dz;
+    const tz = sunRight.z * a + sunUp.z * b + SUN_DIR.z * dz;
+    sun.target.position.set(tx, ty, tz);
+    sun.position.set(tx + SUN_DIR.x * 240, ty + SUN_DIR.y * 240, tz + SUN_DIR.z * 240);
+  }
+  applySunQuality(q);
+  // 设置面板切换画质：即时生效（像素比 / 雾距 / 阴影）
+  useWorld.subscribe((s, prev) => {
+    if (s.tier === prev.tier) return;
+    q = qualityFor(s.tier);
+    applyQuality(s.tier, renderer, fog);
+    applySunQuality(q);
+  });
 
   // ---------- 地形与水 ----------
   let terrainMesh: THREE.Mesh | null = null;
@@ -93,17 +149,34 @@ export function startGame(container: HTMLElement): GameHandle {
     }
   }
   clientWorld.onModsChanged = rebuildTerrain;
-  // hello 到达后：建地形 + 生成已有造物（无动画）
+  // hello 到达后：建地形 + 生成已有造物（无动画）+ 城市陈设
   clientWorld.onHello = () => {
     rebuildTerrain();
     for (const o of clientWorld.objects.values()) spawnProp(o, false);
+    buildTownDressingOnce();
   };
+
+  // ---------- 城市陈设：行道树/街具/红绿灯/停车/广场公园设施，按布局合批，进世界后建一次 ----------
+  let dressing: TownDressing | null = null;
+  let townLife: TownLife | null = null;
+  function buildTownDressingOnce() {
+    if (dressing) return;
+    const plan = getTownPlan(clientWorld.objects.values());
+    dressing = buildTownDressing(plan, (x, z) => clientWorld.heightAt(x, z));
+    propGroup.add(dressing.group);
+    townLife = createTownLife(plan, { crowd: q.crowd, heightAt: (x, z) => clientWorld.heightAt(x, z) });
+    propGroup.add(townLife.group);
+    for (const c of plan.colliders) clientWorld.extra.add(c);
+  }
 
   // ---------- 道具管理 ----------
   const propMeshes = new Map<string, { mesh: THREE.Object3D; labelY: number; seatY: number; creator: string; variant: string; kind: string }>();
   const popAnims = new Map<string, number>();
   const propGroup = new THREE.Group();
   scene.add(propGroup);
+  // 远景（延伸草地/远山/云）：挂在 propGroup 下，进屋时随户外场景一起隐藏
+  const skyline = buildSkyline(clientWorld.meta?.size ?? 256);
+  propGroup.add(skyline.group);
   /** 大道具（房屋/办公楼）世界 AABB：相机避让 + 点击外推，防穿模透视 */
   const camBoxes = new Map<string, THREE.Box3>();
 
@@ -114,6 +187,13 @@ export function startGame(container: HTMLElement): GameHandle {
 
   function spawnProp(o: WorldObject, animate: boolean) {
     const { mesh, labelY } = buildProp(o);
+    // 实时阴影：造物投影到地面/彼此（透明件如玻璃不投影，免得店内一片黑；花/路面圆盘贴地无影可投，省掉阴影通道）
+    const flat = o.kind === "flower" || o.kind === "path" || o.kind === "pond";
+    mesh.traverse((c) => {
+      c.receiveShadow = true;
+      const m = (c as THREE.Mesh).material as THREE.Material | undefined;
+      c.castShadow = !flat && !m?.transparent;
+    });
     // 建筑：坐在宅基地基座高度（脚印内地形会被整平到同一高度）；其余道具贴中心点地面
     const y = isBuildingKind(o.kind) ? clientWorld.siteLevelOf(o) : clientWorld.heightAt(o.x, o.z);
     mesh.position.set(o.x, y, o.z);
@@ -168,6 +248,9 @@ export function startGame(container: HTMLElement): GameHandle {
     x: 128.5, y: 14, z: 128.5, rotY: 0, anim: "idle",
   };
   const selfAvatar = createAvatar("self", "#5b8def");
+  selfAvatar.group.traverse((c) => {
+    c.castShadow = true;
+  });
   scene.add(selfAvatar.group);
 
   // ---------- 相机 ----------
@@ -621,15 +704,15 @@ export function startGame(container: HTMLElement): GameHandle {
   placePreview.add(previewRect, previewCircle);
   /** 压暗状态：true = 当前处于摆道具模式（灯光降档），false = 已还原 */
   let dimmed = false;
-  const LIGHT_DIM = { sun: 0.5, hemi: 0.45, amb: 0.16 };
-  const LIGHT_FULL = { sun: 1.1, hemi: 1.0, amb: 0.28 };
+  const LIGHT_DIM = { sun: 0.9, hemi: 0.6, amb: 0.11 };
+  const LIGHT_FULL = { sun: 2.2, hemi: 1.35, amb: 0.25 };
   const setDim = (v: boolean) => {
     if (dimmed === v) return;
     dimmed = v;
     const t = v ? LIGHT_DIM : LIGHT_FULL;
     sun.intensity = t.sun;
     hemi.intensity = t.hemi;
-    scene.children.find((c) => c instanceof THREE.AmbientLight)!.intensity = t.amb;
+    amb.intensity = t.amb;
   };
   /** 地块许可缓存（跨图块边界才重新请求） */
   const landAtCache = new Map<string, { canBuild: boolean; reason: string; at: number }>();
@@ -662,6 +745,8 @@ export function startGame(container: HTMLElement): GameHandle {
         if (Math.hypot(o.x - x, o.z - z) < cr) return { ok: false, reason: "离其他造物太近了" };
       }
     }
+    // 街景陈设（长椅/行道树/停着的车…）不让压
+    if (clientWorld.extra.hit(x, z, Math.hypot(halfW, halfD))) return { ok: false, reason: "压着街景设施了" };
     // 地块权限（九州地块须归属本人；公共区放行）——用缓存的 viewer 视角结果
     const pid = plotIdAt(x, z);
     if (pid) {
@@ -794,6 +879,9 @@ export function startGame(container: HTMLElement): GameHandle {
     const av = createAvatar(p.name, p.color);
     av.group.userData.personId = p.id; // 点击人物：射线命中后沿 parent 链找到 id
     av.group.userData.personKind = "player";
+    av.group.traverse((c) => {
+      c.castShadow = true;
+    });
     av.group.position.set(p.x, p.y, p.z);
     // 离线驻留的小人（断线留原地的）：半透明 + 💤 名牌
     const off = p.online === false;
@@ -825,6 +913,8 @@ export function startGame(container: HTMLElement): GameHandle {
   let lastControlMode: ControlMode | null = null;
   const camTarget = new THREE.Vector3(128.5, 14, 128.5);
   const camCur = new THREE.Vector3(140, 26, 142);
+  /** 调试/截图用自由机位（null = 正常玩法相机） */
+  let freeCam: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null;
 
   function tick() {
     raf = requestAnimationFrame(tick);
@@ -1231,6 +1321,18 @@ export function startGame(container: HTMLElement): GameHandle {
     // 10. 房间系统（agent 状态机/动画/名牌/气泡）
     roomHost.update(dt, time);
 
+    // 阴影相机跟随玩家（对齐纹素，走动时阴影边缘不抖）
+    updateSun(self.x, self.y, self.z);
+    skyline.update(dt);
+    dressing?.update(time); // 红绿灯相位
+    // 居民避让玩家：把自己的位置喂给生活层
+    townLife?.update(dt, time, dressing ? trafficPhase(time) : { ew: true, ns: true }, st.joined ? [{ x: self.x, z: self.z }] : []);
+
+    // 调试/截图用自由机位：设了就覆盖本帧相机（不影响玩法逻辑）
+    if (freeCam) {
+      camera.position.copy(freeCam.pos);
+      camera.lookAt(freeCam.target);
+    }
     renderer.render(scene, camera);
   }
 
@@ -1261,6 +1363,18 @@ export function startGame(container: HTMLElement): GameHandle {
     setCamDist: (d: number) => {
       camDist = d;
     },
+    setCamPitch: (p: number) => {
+      camPitch = p;
+    },
+    /** 自由机位：pos/target 为世界坐标 [x,y,z]；传 null 恢复玩法相机 */
+    freeCam: (pos: [number, number, number] | null, target?: [number, number, number]) => {
+      freeCam = pos ? { pos: new THREE.Vector3(...pos), target: new THREE.Vector3(...(target ?? [128, 12, 128])) } : null;
+    },
+    setFog: (on: boolean) => {
+      scene.fog = on ? fog : null;
+    },
+    /** 渲染统计（draw call / 三角形数），性能预算核对用 */
+    renderStats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, tier }),
     raycastAt: (sx: number, sy: number) => {
       mouseNDC.x = (sx / container.clientWidth) * 2 - 1;
       mouseNDC.y = -(sy / container.clientHeight) * 2 + 1;
@@ -1290,6 +1404,8 @@ export function startGame(container: HTMLElement): GameHandle {
     }),
     store: useWorld,
     setLandOverlay: (rows: Array<{ plotId: string; ownerId: string; ownerName: string }> | null) => setLandOverlay(rows),
+    townStats: () => ({ dressing: dressing?.stats ?? null, life: townLife?.stats ?? null }),
+    lifeSample: () => townLife?.sample() ?? null,
   };
 
   return {

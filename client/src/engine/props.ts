@@ -292,13 +292,32 @@ function buildTower(variant: string, params: Record<string, unknown>, g: THREE.G
   // 裙房（大半圈玻璃廊）
   g.add(box(w + 1.6, podiumH, d + 1.6, P.podium, 0, podiumH / 2, 0));
   g.add(box(w + 1.7, 1.3, d + 1.7, P.glass, 0, 1.05, 0)); // 裙房玻璃带
+  // 裙房竖向分隔（玻璃幕墙的竖框）
+  for (let i = 0; i < 6; i++) {
+    const bx2 = -w / 2 + ((i + 0.5) * (w + 1.6)) / 6;
+    g.add(box(0.12, 1.3, d + 1.75, P.trim, bx2, 1.05, 0));
+  }
   // 塔身
   const bodyH = floors * FH;
   const bodyY0 = podiumH;
   g.add(box(w, bodyH, d, P.body, 0, bodyY0 + bodyH / 2, 0));
-  // 每层窗带（环绕式薄盒，微微出挑）
+  // 每层窗带（环绕式薄盒，微微出挑）+ 竖框
   for (let i = 0; i < floors; i++) {
     g.add(box(w + 0.14, 1.5, d + 0.14, P.glass, 0, bodyY0 + i * FH + FH * 0.62, 0));
+    const cols = Math.max(3, Math.round(w / 1.6));
+    for (let c = 0; c < cols; c++) {
+      const px2 = -w / 2 + ((c + 0.5) * w) / cols;
+      g.add(box(0.1, 1.55, d + 0.18, P.body, px2, bodyY0 + i * FH + FH * 0.62, 0));
+    }
+  }
+  // 每两层一个阳台（带栏杆）
+  for (let i = 1; i < floors; i += 2) {
+    const ay = bodyY0 + i * FH - 0.1;
+    g.add(box(w * 0.42, 0.12, 0.9, P.trim, 0, ay, d / 2 + 0.4));
+    g.add(box(w * 0.42, 0.06, 0.06, P.trim, 0, ay + 0.55, d / 2 + 0.82));
+    for (let c = 0; c < 5; c++) {
+      g.add(box(0.05, 0.55, 0.05, P.trim, -w * 0.19 + (c * w * 0.38) / 4, ay + 0.28, d / 2 + 0.82));
+    }
   }
   // 屋顶：女儿墙 + 空调机组 + 天线
   const top = bodyY0 + bodyH;
@@ -313,6 +332,18 @@ function buildTower(variant: string, params: Record<string, unknown>, g: THREE.G
   g.add(box(0.14, 2.3, 0.16, P.podium, 1.15, 1.35, (d + 1.6) / 2 + 0.02));
   g.add(box(3.0, 0.18, 1.5, P.trim, 0, podiumH + 0.5, (d + 1.6) / 2 + 0.75));
   g.add(box(2.4, 0.05, 1.3, "#c65f76", 0, 0.03, (d + 1.6) / 2 + 1.6));
+  // 楼顶公司招牌（白底蓝字，远看也读得出）
+  const sign = new THREE.Mesh(
+    new THREE.BoxGeometry(Math.min(w * 0.7, 5), 1.1, 0.16),
+    new THREE.MeshBasicMaterial({
+      map: textTexture(variant === "暖白" ? "小世界" : variant === "陶土红" ? "CITY" : "OFFICE", {
+        bg: "#f4f2ec", fg: "#1e3a5f", border: "#1e3a5f", w: 384, h: 96, font: 52,
+      }),
+    })
+  );
+  sign.position.set(0, top + 1.0, d / 2 + 0.16);
+  g.add(sign);
+  g.add(box(Math.min(w * 0.7, 5) + 0.14, 1.24, 0.1, P.trim, 0, top + 1.0, d / 2 + 0.08));
 }
 
 /** 商铺（阳光都市）：两层彩色小楼 + 橱窗 + 条纹雨棚 + 屋顶招牌，门朝 +z */
@@ -341,12 +372,20 @@ function buildShop(variant: string, params: Record<string, unknown>, g: THREE.Gr
   for (let i = 0; i < segs; i++) {
     g.add(box(segW, 0.14, 1.1, i % 2 === 0 ? P.awnA : P.awnB, -w / 2 + 0.4 + segW * (i + 0.5), 2.75, d / 2 + 0.5));
   }
-  // 屋顶招牌板 + 圆点 logo
-  g.add(box(w * 0.72, 1.05, 0.18, P.sign, 0, H + 0.9, d / 2 - 0.1));
-  g.add(sphere(0.2, "#fdf9f7", -w * 0.2, H + 0.95, d / 2));
-  // 侧窗（x 两侧各一）
+  // 屋顶招牌（带文字的画布贴图，远看也读得出店名）
+  const shopWords = variant === "薄荷绿" ? "CAFE" : variant === "奶油黄" ? "BAKERY" : "COFFEE";
+  const signTex = textTexture(shopWords, { bg: "#f7f4ea", fg: P.sign === "#2f5d4d" ? "#2f5d4d" : P.sign, border: P.sign, w: 384, h: 112, font: 54 });
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 1.15, 0.16), new THREE.MeshBasicMaterial({ map: signTex }));
+  sign.position.set(0, H + 0.92, d / 2 - 0.06);
+  g.add(sign);
+  g.add(box(w * 0.82, 1.3, 0.08, P.trim, 0, H + 0.92, d / 2 - 0.14));
+  // 侧窗（x 两侧各一）+ 窗上小遮阳
   g.add(box(0.1, 1.2, 1.6, "#bcd8f5", w / 2 + 0.04, 1.3, 0));
   g.add(box(0.1, 1.2, 1.6, "#bcd8f5", -w / 2 - 0.04, 1.3, 0));
+  g.add(box(0.34, 0.08, 1.8, P.awnA, w / 2 + 0.16, 2.0, 0));
+  g.add(box(0.34, 0.08, 1.8, P.awnA, -w / 2 - 0.16, 2.0, 0));
+  // 墙裙（底部深色收边）
+  g.add(box(w + 0.06, 0.5, d + 0.06, P.trim, 0, 0.25, 0));
 }
 
 /** 便利店（系统地标，致敬 konbini 微缩景观）：白盒+蓝檐+大玻璃橱窗透亮内饰+贩卖机×2+发光招牌，门朝 +z */

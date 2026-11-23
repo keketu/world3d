@@ -1,6 +1,7 @@
 // 客户端世界状态：高度图（含 mods）+ 道具索引 + 碰撞
 import { heightAt as baseHeightAt, WORLD_SEED, WATER_LEVEL, WorldMeta, WorldObject, TerrainMod, PlayerInfo, isPropCollidable, isBuildingKind, buildingRect } from "@world3d/shared";
 import { requestPlace, requestRemove } from "../net/socket";
+import { ColliderGrid } from "./colliderGrid";
 
 interface RemoteAvatar {
   group: unknown;
@@ -13,6 +14,8 @@ class ClientWorld {
   mods = new Map<string, TerrainMod>();
   objects = new Map<string, WorldObject>();
   remotes = new Map<string, RemoteAvatar>();
+  /** 街景陈设的碰撞体（长椅/行道树/停着的车/红绿灯…），由 townDressing 注册 */
+  readonly extra = new ColliderGrid();
 
   /** 道具增删回调（props 渲染层注册） */
   onObjectAdded: (o: WorldObject, animate: boolean) => void = () => {};
@@ -130,6 +133,7 @@ class ClientWorld {
     const size = meta?.size ?? 256;
     if (x < 1.2 || z < 1.2 || x > size - 1.2 || z > size - 1.2) return true;
     if (!this.isLand(x, z)) return true;
+    if (this.extra.hit(x, z, 0.3)) return true; // 街景陈设
     // 道具碰撞：小件圆形近似，建筑用旋转矩形（贴合墙体，防切角穿模）
     for (const o of this.objects.values()) {
       if (isBuildingKind(o.kind)) {
