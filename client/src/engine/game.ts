@@ -509,6 +509,8 @@ export function startGame(container: HTMLElement): GameHandle {
   const applyLookDelta = (dx: number, dy: number, fromDrag: boolean) => {
     const st = useWorld.getState().settings;
     if (!fromDrag && !st.freeLook) return;
+    // 点击行走模式：鼠标移动只做落点指示，不自动转视角（否则指哪跑哪），转向靠按住拖拽
+    if (!fromDrag && st.controlMode === "mouse") return;
     const sens = st.mouseSensitivity;
     camYaw -= dx * 0.0052 * sens;
     // 俯仰钳制：第一人称可略仰视；房间内保持俯视区间（不穿墙）
@@ -1168,7 +1170,9 @@ export function startGame(container: HTMLElement): GameHandle {
         let turn = 0;
         if (hoverScreen.x < EDGE) turn = 1;
         else if (hoverScreen.x > w - EDGE) turn = -1;
-        if (turn !== 0 && useWorld.getState().settings.edgeLock) {
+        // 点击行走模式不开边缘转向（鼠标贴边会把视角带着跑）
+        const edgeOk = useWorld.getState().settings.controlMode !== "mouse";
+        if (turn !== 0 && edgeOk && useWorld.getState().settings.edgeLock) {
           const sens = useWorld.getState().settings.mouseSensitivity;
           camYaw += turn * dt * 1.1 * sens;
         }
@@ -1451,7 +1455,8 @@ export function startGame(container: HTMLElement): GameHandle {
       const cp = Math.cos(camPitch);
       camera.position.set(self.x, self.y + 1.5, self.z);
       camera.lookAt(
-        self.x + Math.sin(camYaw) * cp,
+        // 与第三人称一致（第三人称视线 = -camDir）：原来这里 x 分量符号相反，导致第一人称转向是反的
+        self.x - Math.sin(camYaw) * cp,
         self.y + 1.5 - Math.sin(camPitch),
         self.z - Math.cos(camYaw) * cp
       );
@@ -1580,6 +1585,13 @@ export function startGame(container: HTMLElement): GameHandle {
     },
     setCamPitch: (p: number) => {
       camPitch = p;
+    },
+    /** 当前视线方向（水平分量）与相机右向量——验证转向方向用 */
+    viewDir: () => {
+      const v = new THREE.Vector3();
+      camera.getWorldDirection(v);
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+      return { x: v.x, z: v.z, rx: right.x, rz: right.z };
     },
     /** 自由机位：pos/target 为世界坐标 [x,y,z]；传 null 恢复玩法相机 */
     freeCam: (pos: [number, number, number] | null, target?: [number, number, number]) => {
