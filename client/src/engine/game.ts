@@ -707,10 +707,11 @@ export function startGame(container: HTMLElement): GameHandle {
     clientWorld.removeProp(id);
   }
 
-  // ---------- 高亮环 ----------
+  // ---------- 悬停指示（小圈，跟随鼠标落点）----------
+  // 目的地圈在下面（destRing），尺寸大；这里只放一个精确的小点，不喧宾夺主
   const highlightRing = new THREE.Mesh(
-    new THREE.RingGeometry(0.55, 0.7, 28),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.14, 0.2, 20),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
   );
   highlightRing.rotation.x = -Math.PI / 2;
   highlightRing.visible = false;
