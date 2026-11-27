@@ -224,7 +224,7 @@ export function planTown(objects: WorldObject[]): TownPlan {
     for (let i = 0; i < edges.length - 1; i++) {
       segs.push([edges[i] + (i > 0 ? ROAD_HALF : 0), edges[i + 1] - (i < edges.length - 2 ? ROAD_HALF : 0)]);
     }
-    const COUNT = [0, 1, 1, 2, 2, 3, 3]; // 0~3 辆，偏向少
+    const COUNT = [0, 0, 1, 0, 1, 0, 2]; // 路边停车稀疏：多数路段空着，少数停 1~2 辆
     for (const sd of sides) {
       for (const [a, b] of segs) {
         const maxN = Math.min(3, Math.floor((b - a - 2) / 9));
@@ -232,8 +232,9 @@ export function planTown(objects: WorldObject[]): TownPlan {
         const start = a + 2 + rng() * Math.max(0, b - a - 4 - n * 9);
         const rotY = sd.axis === 0 ? (sd.s > 0 ? Math.PI / 2 : -Math.PI / 2) : sd.s > 0 ? 0 : Math.PI;
         for (let j = 0; j < n; j++) {
-          const [x, z] = P(sd, 3.45, start + 4.5 + j * 9);
+          const [x, z] = P(sd, 3.5, start + 4.5 + j * 9);
           const it = item("parkedCar", x, z, rotY, { tone: Math.floor(rng() * 10), variant: rng() < 0.3 ? 1 : 0 });
+          // 泊位线与车同位（画进地形贴图），车停在线内
           if (place(it, rect(2.05, 0.95, rotY), 0.3)) bays.push({ x, z, rotY, len: 5.4, wid: 2.4 });
         }
       }

@@ -17,9 +17,14 @@ export interface TownDressing {
 }
 
 /** 红绿灯相位：东西向绿 9.5s → 全红 1.5s → 南北向绿 9.5s → 全红 1.5s（车辆据此停车） */
-export function trafficPhase(time: number): { ew: boolean; ns: boolean } {
-  const t = time % 22;
-  return { ew: t < 9.5, ns: t >= 11 && t < 20.5 };
+/**
+ * 红绿灯相位：东西向绿 → 全红 → 南北向绿 → 全红
+ * 周期取 19.7s（非整、与车辆绕行时间不成整数比）：否则某辆车每绕一圈恰好回到同一路口遇同一红灯，会永远卡住
+ */
+export function trafficPhase(time: number, offset = 0): { ew: boolean; ns: boolean } {
+  const CYCLE = 19.7;
+  const t = (time + offset) % CYCLE;
+  return { ew: t < 9, ns: t >= 10.5 && t < 19.5 };
 }
 
 /** 按陈设种类往 Kit 里填零件（局部坐标，原点在地面中心） */

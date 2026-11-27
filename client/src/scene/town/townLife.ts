@@ -5,13 +5,14 @@ import { ROAD_LINES, mulberry32, WORLD_SEED } from "@world3d/shared";
 import { createAvatar, compactAvatar, animateAvatar, Avatar } from "../avatar";
 import { mergeParts } from "../mergeParts";
 import * as Kit from "./townKit";
+import { trafficPhase } from "./townDressing";
 import type { TownPlan } from "./townPlan";
 import { clientWorld } from "../../engine/world";
 
 /** 车道中心距路中心 */
 const LANE = 1.6;
-/** 停止线距路口中心（斑马线之外） */
-const STOP_LINE = 6.0;
+/** 停止线距路口中心（贴斑马线前缘，别停太远显得堵路） */
+const STOP_LINE = 1.6;
 /** 车头到车中心 */
 const CAR_FRONT = 2.1;
 
@@ -102,7 +103,7 @@ function ringLoop(xa: number, xb: number, za: number, zb: number, blocked?: (x: 
           { cx: x0, cz: z0, a0: Math.PI / 2, a1: Math.PI, inX: 1, inZ: 1 },
           { cx: x0, cz: z1, a0: 0, a1: Math.PI / 2, inX: 1, inZ: -1 },
         ];
-  const radii = [9, 7, 5, 3.5, 2.5];
+  const radii = [6, 7, 5, 4, 3, 2.5]; // 6m 优先：转弯更明显，不显得切弯平移
   for (const r of radii) {
     const pts: Array<[number, number]> = [];
     let ok = true;
@@ -173,6 +174,8 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
     s: number;
     v: number;
     vmax: number;
+    /** 看到红绿灯的相位偏移（车队不同步，不会整批一起停） */
+    phaseOffset: number;
     /** 当前朝向（平滑插值，不瞬间跳变） */
     heading: number;
     /** 行驶方向：1 = 顺时针，-1 = 逆时针（对向车流） */
@@ -184,7 +187,7 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
     mesh.castShadow = true;
     group.add(mesh);
     const p0 = loopPoint(loop, s, { x: 0, z: 0, dx: 0, dz: 0, i: 0 });
-    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax, heading: Math.atan2(-p0.dz * dir, p0.dx * dir), dir });
+    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax, phaseOffset: rng() * 24, heading: Math.atan2(-p0.dz * dir, p0.dx * dir), dir });
   };
   cwLoops.forEach((lp, i) => {
     const color = i % Kit.CAR_COLORS.length;
@@ -288,7 +291,8 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
         const dir = (alongX ? pt.dx : pt.dz) * c.dir;
         let target = c.vmax;
         let brakeDist = Infinity;
-        if (!(axis === "ew" ? phase.ew : phase.ns)) {
+        const ph = trafficPhase(time, c.phaseOffset);
+        if (!(axis === "ew" ? ph.ew : ph.ns)) {
           const end = c.loop.pts[(pt.i + 1) % c.loop.pts.length][alongX ? 0 : 1];
           for (const L of ROAD_LINES) {
             const d = (L - posAlong) * dir;

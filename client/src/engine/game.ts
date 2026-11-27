@@ -1642,6 +1642,7 @@ export function startGame(container: HTMLElement): GameHandle {
     store: useWorld,
     setLandOverlay: (rows: Array<{ plotId: string; ownerId: string; ownerName: string }> | null) => setLandOverlay(rows),
     townStats: () => ({ dressing: dressing?.stats ?? null, life: townLife?.stats ?? null }),
+    townItems: () => getTownPlan(clientWorld.objects.values()).items.map((i) => ({ k: i.kind, x: Math.round(i.x * 10) / 10, z: Math.round(i.z * 10) / 10, r: Math.round(i.rotY * 100) / 100 })),
     lifeSample: () => townLife?.sample() ?? null,
   };
 
