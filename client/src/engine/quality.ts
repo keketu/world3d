@@ -10,7 +10,7 @@ export interface QualitySettings {
   shadowMap: number;
   /** 阴影覆盖半径（米，以玩家为中心） */
   shadowExtent: number;
-  /** 环境居民数量（散步 NPC） */
+  /** 环境居民数量（散步 NPC）——统一造型的假人已移除，设 0 */
   crowd: number;
 }
 
@@ -28,11 +28,11 @@ export function detectTier(): QualityTier {
 export function qualityFor(tier: QualityTier): QualitySettings {
   switch (tier) {
     case "high":
-      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 2), fogNear: 140, fogFar: 480, shadowMap: 4096, shadowExtent: 100, crowd: 12 };
+      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 2), fogNear: 140, fogFar: 480, shadowMap: 4096, shadowExtent: 100, crowd: 0 };
     case "mid":
-      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 1.25), fogNear: 100, fogFar: 340, shadowMap: 2048, shadowExtent: 80, crowd: 8 };
+      return { tier, dpr: Math.min(window.devicePixelRatio || 1, 1.25), fogNear: 100, fogFar: 340, shadowMap: 2048, shadowExtent: 80, crowd: 0 };
     case "low":
-      return { tier, dpr: 0.75, fogNear: 45, fogFar: 190, shadowMap: 0, shadowExtent: 0, crowd: 4 };
+      return { tier, dpr: 0.75, fogNear: 45, fogFar: 190, shadowMap: 0, shadowExtent: 0, crowd: 0 };
   }
 }
 

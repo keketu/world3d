@@ -19,7 +19,7 @@ export interface TownLife {
   group: THREE.Group;
   /** people = 玩家位置：车会礼让 */
   update(dt: number, time: number, phase: { ew: boolean; ns: boolean }, people: Array<{ x: number; z: number }>): void;
-  stats: { cars: number; peds: number };
+  stats: { cars: number; peds: number; loopShapes?: number[] };
   /** 调试：车辆与居民位置采样 */
   sample(): { cars: Array<{ x: number; z: number; v: number; rot: number }>; peds: Array<{ x: number; z: number }> };
   /** 附近居民（玩家绕人用）：返回半径内最近的一位 */
@@ -152,14 +152,19 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
   // 每个街区两条车道：外扩（顺时针右手通行）+ 内缩（对向车道，逆时针）——同一条路上双向分流
   const cwLoops: Loop[] = [];
   const ccwLoops: Loop[] = [];
+  /** 诊断：环道点位（32 = 圆弧版，4 = 降级直角） */
+  const loopShapes: number[] = [];
   for (let bi = 1; bi <= 3; bi++) {
     for (let bj = 1; bj <= 3; bj++) {
       const xa = ROAD_LINES[bi - 1];
       const xb = ROAD_LINES[bi];
       const za = ROAD_LINES[bj - 1];
       const zb = ROAD_LINES[bj];
-      cwLoops.push(ringLoop(xa, xb, za, zb, solidAt, 1));
-      ccwLoops.push(ringLoop(xa, xb, za, zb, solidAt, -1));
+      const l1 = ringLoop(xa, xb, za, zb, solidAt, 1);
+      const l2 = ringLoop(xa, xb, za, zb, solidAt, -1);
+      cwLoops.push(l1);
+      ccwLoops.push(l2);
+      loopShapes.push(l1.pts.length, l2.pts.length);
     }
   }
   interface Car {
@@ -179,7 +184,7 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
     mesh.castShadow = true;
     group.add(mesh);
     const p0 = loopPoint(loop, s, { x: 0, z: 0, dx: 0, dz: 0, i: 0 });
-    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax, heading: Math.atan2(p0.dx * dir, p0.dz * dir), dir });
+    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax, heading: Math.atan2(-p0.dz * dir, p0.dx * dir), dir });
   };
   cwLoops.forEach((lp, i) => {
     const color = i % Kit.CAR_COLORS.length;
@@ -246,7 +251,7 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
 
   return {
     group,
-    stats: { cars: cars.length, peds: peds.length },
+    stats: { cars: cars.length, peds: peds.length, loopShapes },
     pedNear(x, z, r) {
       let best: { x: number; z: number } | null = null;
       let bd = r * r;
@@ -315,7 +320,8 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
         c.s += c.v * dt * c.dir;
         loopPoint(c.loop, c.s, pt);
         // 朝向平滑：朝路径方向渐变（瞬间跳变看着像滑行）
-        const want = Math.atan2(pt.dx * c.dir, pt.dz * c.dir);
+        // 注意：车模型的车头沿局部 +x，而 three 的 yaw 约定是 +z，所以要用 atan2(-dz, dx)（否则差 90° → 侧着平移）
+        const want = Math.atan2(-pt.dz * c.dir, pt.dx * c.dir);
         let diff = ((want - c.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
         c.heading += diff * Math.min(1, dt * 7);
         c.mesh.rotation.y = c.heading;
