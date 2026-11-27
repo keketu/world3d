@@ -125,6 +125,9 @@ export function startGame(container: HTMLElement): GameHandle {
     applySunQuality(q);
   });
 
+  /** 首屏各阶段耗时（诊断加载慢用） */
+  const perf: Record<string, unknown> = {};
+
   // ---------- 地形与水 ----------
   let terrainMesh: THREE.Mesh | null = null;
   let waterMesh: THREE.Mesh | null = null;
@@ -152,9 +155,26 @@ export function startGame(container: HTMLElement): GameHandle {
   clientWorld.onModsChanged = rebuildTerrain;
   // hello 到达后：建地形 + 生成已有造物（无动画）+ 城市陈设
   clientWorld.onHello = () => {
+    const t0 = performance.now();
+    // 地形（贴图 + 网格）先建，玩家一进来就有画面
     rebuildTerrain();
-    for (const o of clientWorld.objects.values()) spawnProp(o, false);
-    buildTownDressingOnce();
+    const t1 = performance.now();
+    // 玩家道具分批建：每帧 12 个，避免几百个道具一次性卡住主线程
+    const objs = [...clientWorld.objects.values()];
+    let i = 0;
+    const step = () => {
+      const end = Math.min(objs.length, i + 12);
+      for (; i < end; i++) spawnProp(objs[i], false);
+      if (i < objs.length) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    // 街景陈设（上千件合批）放到道具之后
+    setTimeout(() => {
+      const t2 = performance.now();
+      buildTownDressingOnce();
+      const t3 = performance.now();
+      perf.hello = { terrain: Math.round(t1 - t0), props: Math.round(t2 - t1), dressing: Math.round(t3 - t2), total: Math.round(t3 - t0) };
+    }, 16);
   };
 
   // ---------- 城市陈设：行道树/街具/红绿灯/停车/广场公园设施，按布局合批，进世界后建一次 ----------
@@ -1642,6 +1662,42 @@ export function startGame(container: HTMLElement): GameHandle {
     store: useWorld,
     setLandOverlay: (rows: Array<{ plotId: string; ownerId: string; ownerName: string }> | null) => setLandOverlay(rows),
     townStats: () => ({ dressing: dressing?.stats ?? null, life: townLife?.stats ?? null }),
+    perf: () => perf,
+    /** 调试：绘制所有车最近 N 帧的行驶轨迹（看车是否沿路走） */
+    drawCarTrails: (frames = 240) => {
+      const w = window as unknown as { __world3d?: Record<string, unknown> };
+      void w;
+      const group = new THREE.Group();
+      const tracks = new Map<number, THREE.Vector3[]>();
+      const colors = [0xff5fa2, 0x53e3e0, 0xffd166, 0x8ab4ff, 0x9bf6a0];
+      let frame = 0;
+      const tick = () => {
+        if (frame > frames) {
+          // 画轨迹：每 12 帧放一个小方块（俯视下线条太细看不清）
+          let i = 0;
+          for (const pts of tracks.values()) {
+            const col = colors[i++ % colors.length];
+            for (let k = 0; k < pts.length; k += 12) {
+              const p0 = pts[k];
+              const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.5), new THREE.MeshBasicMaterial({ color: col }));
+              box.position.copy(p0);
+              group.add(box);
+            }
+          }
+          scene.add(group);
+          (window as unknown as { __trailGroup?: THREE.Group }).__trailGroup = group;
+          return;
+        }
+        frame++;
+        const cars = townLife?.sample().cars ?? [];
+        cars.forEach((c, k) => {
+          if (!tracks.has(k)) tracks.set(k, []);
+          tracks.get(k)!.push(new THREE.Vector3(c.x, clientWorld.heightAt(c.x, c.z) + 0.35, c.z));
+        });
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    },
     townItems: () => getTownPlan(clientWorld.objects.values()).items.map((i) => ({ k: i.kind, x: Math.round(i.x * 10) / 10, z: Math.round(i.z * 10) / 10, r: Math.round(i.rotY * 100) / 100 })),
     lifeSample: () => townLife?.sample() ?? null,
   };

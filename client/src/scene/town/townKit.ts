@@ -265,6 +265,12 @@ export function trafficLight(k: Kit, axis: "ew" | "ns") {
 
 export const CAR_COLORS = [0xf2f3f5, 0xc9ced4, 0x2a2d33, 0xd6453d, 0x3a6fb0, 0x27406b, 0x8fd0c0, 0xf0c24a, 0xe6d7b8, 0xe8833a];
 
+/** 车轮位置（局部 x,z）与半径 —— 车轮需自转，故不进合并体 */
+export const CAR_WHEELS: Array<[number, number]> = [
+  [1.3, 0.86], [1.3, -0.86], [-1.3, 0.86], [-1.3, -0.86],
+];
+export const CAR_WHEEL_R = 0.3;
+
 /** 轿车：车长沿 x，车头在 +x；variant 1 = 面包车/MPV */
 export function car(p: Parts, color: number, variant = 0) {
   if (variant === 1) {
@@ -277,15 +283,13 @@ export function car(p: Parts, color: number, variant = 0) {
     bx(p, 2.0, 0.52, 1.6, 0x2f3b4a, -0.25, 1.13, 0);
     bx(p, 1.7, 0.07, 1.5, color, -0.25, 1.42, 0);
   }
-  for (const [x, z] of [[1.3, 0.86], [1.3, -0.86], [-1.3, 0.86], [-1.3, -0.86]]) {
-    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.22, 10), M(0x1e2126));
-    w.rotation.x = Math.PI / 2;
-    w.position.set(x, 0.3, z);
-    p.push(w);
-  }
+  // 轮子不进合并体：单独作为子对象，才能滚动（不转的轮子会让车看起来在平移）
+  // 轮位记录在 CAR_WHEELS，由 caller 建子 mesh
   const fx = variant === 1 ? 1.96 : 2.01;
-  bx(p, 0.06, 0.14, 0.34, 0xfff3c4, fx, 0.78, 0.55);
-  bx(p, 0.06, 0.14, 0.34, 0xfff3c4, fx, 0.78, -0.55);
+  // 前脸：贯穿式灯带（醒目，一眼能看出车头朝哪）+ 两盏大灯
+  bx(p, 0.07, 0.1, 1.3, 0x7fe6d8, fx + 0.01, 0.86, 0);
+  bx(p, 0.06, 0.14, 0.34, 0xfff3c4, fx, 0.72, 0.55);
+  bx(p, 0.06, 0.14, 0.34, 0xfff3c4, fx, 0.72, -0.55);
   bx(p, 0.06, 0.13, 0.34, 0xd6453d, -fx, 0.8, 0.58);
   bx(p, 0.06, 0.13, 0.34, 0xd6453d, -fx, 0.8, -0.58);
   bx(p, 0.12, 0.18, 1.7, 0x3a3d42, fx + 0.02, 0.44, 0);

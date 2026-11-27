@@ -42,7 +42,8 @@ function handleHello(h: HelloPayload) {
   clientWorld.removeRemote(h.selfId);
   // hello.players = 你加入前就在场的玩家（他们不会再发 player:join）——补建远程角色
   for (const p of h.players) clientWorld.addRemote(p);
-  clientWorld.onHello();
+  // 场景构建（地形/道具/街景陈设）量不小，放到下一帧异步做：玩家先进来，画面随后补齐，不卡在加载界面
+  requestAnimationFrame(() => clientWorld.onHello());
 }
 
 export function connect(): Socket {

@@ -79,41 +79,52 @@ function loopPoint(lp: Loop, s: number, out: PathPoint): PathPoint {
  * 圆弧半径自适应：逐档试到不压建筑为止。
  */
 function ringLoop(xa: number, xb: number, za: number, zb: number, blocked?: (x: number, z: number) => boolean, lane: 1 | -1 = 1): Loop {
-  // lane=+1 外扩（顺时针右手通行的车道，靠近路的外侧）；lane=-1 内缩（对向车道）
+  // lane=+1 外扩车道（顺时针），lane=-1 内缩对向车道（逆时针）
   const x0 = xa - LANE * lane;
   const x1 = xb + LANE * lane;
   const z0 = za - LANE * lane;
   const z1 = zb + LANE * lane;
-  // 顺时针四个转角：(x1,z1) → (x0,z1) → (x0,z0) → (x1,z0)
-  // 顺时针四个转角：南边往 -x → 西边往 -z → 北边往 +x → 东边往 +z
-  // 每个转角是 90° 圆弧（与两条直路相切）：圆心在角内侧 r 处，角度沿行进方向递增
-  // 顺时针角序（外扩车道）：西南→西北→东北→东南；逆时针（内缩对向车道）把角序反过来
-  const CW = [
-    { cx: x0, cz: z1, a0: Math.PI / 2, a1: Math.PI, inX: 1, inZ: -1 },
-    { cx: x0, cz: z0, a0: Math.PI, a1: Math.PI * 1.5, inX: 1, inZ: 1 },
-    { cx: x1, cz: z0, a0: Math.PI * 1.5, a1: Math.PI * 2, inX: -1, inZ: 1 },
-    { cx: x1, cz: z1, a0: 0, a1: Math.PI / 2, inX: -1, inZ: -1 },
-  ];
-  const corners =
+
+  /**
+   * 转角圆弧：圆心在「路口外缘」（远离本街区中心）——车绕外缘转，不斜切穿路口/街区。
+   * 切点用垂足公式自动算（手写角度会和圆心位置不自洽，导致车穿过路口中央）。
+   * H = 水平边切点角度，V = 垂直边切点角度；顺序由 hv 决定（hv=true 表示先水平后垂直）。
+   */
+  type Turn = { ax: number; az: number; inX: number; inZ: number; hv: boolean };
+  const turns: Turn[] =
     lane === 1
-      ? CW
+      ? [
+          { ax: x0, az: z1, inX: -1, inZ: 1, hv: true }, // 西南：南边→西边
+          { ax: x0, az: z0, inX: -1, inZ: -1, hv: false }, // 西北：西边→北边
+          { ax: x1, az: z0, inX: 1, inZ: -1, hv: true }, // 东北：北边→东边
+          { ax: x1, az: z1, inX: 1, inZ: 1, hv: false }, // 东南：东边→南边
+        ]
       : [
-          { cx: x1, cz: z1, a0: Math.PI * 1.5, a1: Math.PI * 2, inX: -1, inZ: -1 },
-          { cx: x1, cz: z0, a0: Math.PI, a1: Math.PI * 1.5, inX: -1, inZ: 1 },
-          { cx: x0, cz: z0, a0: Math.PI / 2, a1: Math.PI, inX: 1, inZ: 1 },
-          { cx: x0, cz: z1, a0: 0, a1: Math.PI / 2, inX: 1, inZ: -1 },
+          { ax: x1, az: z1, inX: 1, inZ: 1, hv: true }, // 东南：南边→东边
+          { ax: x1, az: z0, inX: 1, inZ: -1, hv: false }, // 东北：东边→北边
+          { ax: x0, az: z0, inX: -1, inZ: -1, hv: true }, // 西北：北边→西边
+          { ax: x0, az: z1, inX: -1, inZ: 1, hv: false }, // 西南：西边→南边
         ];
-  const radii = [6, 7, 5, 4, 3, 2.5]; // 6m 优先：转弯更明显，不显得切弯平移
+
+  const radii = [8, 7, 6, 5, 4, 3];
   for (const r of radii) {
     const pts: Array<[number, number]> = [];
     let ok = true;
-    for (const c of corners) {
-      const ccx = c.cx + c.inX * r;
-      const ccz = c.cz + c.inZ * r;
-      for (let i = 0; i <= 7; i++) {
-        const a = c.a0 + (c.a1 - c.a0) * (i / 7);
-        const px = ccx + Math.cos(a) * r;
-        const pz = ccz + Math.sin(a) * r;
+    for (const t of turns) {
+      // 圆心 = 角点沿外缘方向 r；到两条直线的距离恰为 r
+      const cx = t.ax + t.inX * r;
+      const cz = t.az + t.inZ * r;
+      // 切点：水平边垂足 (cx, az)，垂直边垂足 (ax, cz)
+      const hAng = t.inZ > 0 ? -Math.PI / 2 : Math.PI / 2;
+      const vAng = t.inX > 0 ? Math.PI : 0;
+      const a0 = t.hv ? hAng : vAng;
+      const a1 = t.hv ? vAng : hAng;
+      // 角度递增方向（保证是 90° 的正向扫过）
+      const ccw = a1 > a0;
+      for (let i = 0; i <= 8; i++) {
+        const a = a0 + (ccw ? 1 : -1) * (Math.abs(a1 - a0) * i) / 8;
+        const px = cx + Math.cos(a) * r;
+        const pz = cz + Math.sin(a) * r;
         if (blocked && blocked(px, pz)) {
           ok = false;
           break;
@@ -135,6 +146,7 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
   const rng = mulberry32(WORLD_SEED ^ 0x6c696665); // "life"
   const group = new THREE.Group();
   const carMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1e2126 });
 
   const geoCache = new Map<string, THREE.BufferGeometry>();
   const vehicleGeo = (key: string, build: (p: Kit.Parts) => void) => {
@@ -180,14 +192,28 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
     heading: number;
     /** 行驶方向：1 = 顺时针，-1 = 逆时针（对向车流） */
     dir: 1 | -1;
+    /** 车轮（随车速滚动——不转的轮子会让车看起来在平移） */
+    wheelMeshes: THREE.Mesh[];
   }
   const cars: Car[] = [];
-  const addCar = (loop: Loop, s: number, geo: THREE.BufferGeometry, vmax: number, dir: 1 | -1 = 1) => {
+  const addCar = (loop: Loop, s: number, geo: THREE.BufferGeometry, vmax: number, dir: 1 | -1 = 1, withWheels = true) => {
     const mesh = new THREE.Mesh(geo, carMat);
     mesh.castShadow = true;
+    const wheelMeshes: THREE.Mesh[] = [];
+    if (withWheels) {
+      for (const [wx, wz] of Kit.CAR_WHEELS) {
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(Kit.CAR_WHEEL_R, Kit.CAR_WHEEL_R, 0.22, 10), wheelMat);
+        w.rotation.x = Math.PI / 2; // 轮轴沿 z（垂直于前进方向）
+        w.position.set(wx, Kit.CAR_WHEEL_R, wz);
+        w.castShadow = true;
+        mesh.add(w);
+        wheelMeshes.push(w);
+      }
+    }
+    mesh.userData.wheels = wheelMeshes;
     group.add(mesh);
     const p0 = loopPoint(loop, s, { x: 0, z: 0, dx: 0, dz: 0, i: 0 });
-    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax, phaseOffset: rng() * 24, heading: Math.atan2(-p0.dz * dir, p0.dx * dir), dir });
+    cars.push({ mesh, loop, s: s % loop.total, v: 0, vmax, phaseOffset: rng() * 24, wheelMeshes, heading: Math.atan2(-p0.dz * dir, p0.dx * dir), dir });
   };
   cwLoops.forEach((lp, i) => {
     const color = i % Kit.CAR_COLORS.length;
@@ -202,7 +228,7 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
     }
   });
   // 外环公交（沿最外圈道路）
-  addCar(ringLoop(ROAD_LINES[0], ROAD_LINES[3], ROAD_LINES[0], ROAD_LINES[3], solidAt, 1), 40, vehicleGeo("bus", (p) => Kit.bus(p, 0x53a8c8)), 5.6);
+  addCar(ringLoop(ROAD_LINES[0], ROAD_LINES[3], ROAD_LINES[0], ROAD_LINES[3], solidAt, 1), 40, vehicleGeo("bus", (p) => Kit.bus(p, 0x53a8c8)), 5.6, 1, false);
 
   // ---------- 居民 ----------
   interface Ped {
@@ -277,6 +303,12 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
           v: Math.round(c.v * 100) / 100,
           /** 真实渲染朝向（弧度）——用于验证转向是否平滑 */
           rot: Math.round(c.mesh.rotation.y * 1000) / 1000,
+          /** 车头灯世界坐标（模型前方 = 局部 +x）——与车身中心对比即可看出车头朝哪 */
+          head: (() => {
+            const v = new THREE.Vector3(2.02, 0.86, 0);
+            c.mesh.localToWorld(v);
+            return { x: Math.round(v.x * 100) / 100, z: Math.round(v.z * 100) / 100 };
+          })(),
         })),
         peds: peds.map((p) => ({ x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 })),
       };
@@ -323,13 +355,19 @@ export function createTownLife(plan: TownPlan, opts: { crowd: number; heightAt: 
         if (c.v < 0.02 && target === 0) c.v = 0;
         c.s += c.v * dt * c.dir;
         loopPoint(c.loop, c.s, pt);
-        // 朝向平滑：朝路径方向渐变（瞬间跳变看着像滑行）
+        // 朝向平滑：取前方一小段的路径方向（预判）来定车头角度 —— 用当前段方向会显得车身滞后于转向
         // 注意：车模型的车头沿局部 +x，而 three 的 yaw 约定是 +z，所以要用 atan2(-dz, dx)（否则差 90° → 侧着平移）
-        const want = Math.atan2(-pt.dz * c.dir, pt.dx * c.dir);
+        const ahead = loopPoint(c.loop, c.s + c.dir * 3.2, pt);
+        const want = Math.atan2(-ahead.dz * c.dir, ahead.dx * c.dir);
         let diff = ((want - c.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-        c.heading += diff * Math.min(1, dt * 7);
+        c.heading += diff * Math.min(1, dt * 11);
         c.mesh.rotation.y = c.heading;
         c.mesh.position.set(pt.x, opts.heightAt(pt.x, pt.z), pt.z);
+        // 车轮滚动：角速度 = 线速度 / 半径
+        if (c.wheelMeshes.length) {
+          const spin = (c.v * dt) / Kit.CAR_WHEEL_R;
+          for (const w of c.wheelMeshes) w.rotation.z -= spin;
+        }
       }
 
       // --- 居民：环道散步 / 广场游走，偶尔驻足 ---
